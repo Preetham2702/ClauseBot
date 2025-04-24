@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Preview - {{ filename }}</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      padding: 40px;
+      background: #f4f4f4;
+    }
+
+    h1 {
+      font-size: 2.5em;
+      margin-bottom: 20px;
+    }
+
+    .table-container {
+      margin-bottom: 30px;
+    }
+
+    table {
+      border-collapse: collapse;
+      width: 100%;
+    }
+
+    table, th, td {
+      border: 1px solid #ddd;
+      padding: 8px;
+    }
+
+    th {
+      background: whitesmoke;
+      color: black;
+    }
+
+    .buttons {
+      display: flex;
+      gap: 10px;
+      margin-bottom: 20px;
+    }
+
+    .btn {
+      padding: 10px 20px;
+      border: none;
+      color: white;
+      border-radius: 5px;
+      cursor: pointer;
+    }
+
+    .update-btn {
+      background: #28a745;
+    }
+
+    .delete-btn {
+      background: #dc3545;
+    }
+
+    .success {
+      color: green;
+      font-weight: bold;
+      margin-top: 20px;
+    }
+
+    a.back-link {
+      display: inline-block;
+      margin-top: 20px;
+    }
+  </style>
+</head>
+<body>
+  <h1>Preview of {{ filename }}</h1>
+
+  <div class="table-container">
+    {{ tables|safe }}
+  </div>
+
+  <div class="buttons">
+    <form action="{{ url_for('update', filename=filename) }}" method="post">
+      <button class="btn update-btn" type="submit">Update to Database</button>
+    </form>
+
+    <form action="{{ url_for('delete_file', filename=filename) }}" method="post">
+      <button class="btn delete-btn" type="submit">Delete File</button>
+    </form>
+  </div>
+
+  {% if message %}
+    <div class="success">{{ message }}</div>
+  {% endif %}
+
+  <a class="back-link" href="/">← Back to file list</a>
+</body>
+</html>
