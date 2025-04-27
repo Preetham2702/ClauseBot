@@ -106,7 +106,7 @@ def view_image_data(filename):
         return render_template('preview.html', tables=[df_html], filename=filename, show_button=False)
     except Exception as e:
         return f"Error: {e}", 500
-## only image data 
+
 @app.route('/update/<filename>', methods=['POST'])
 def update(filename):
     filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
@@ -151,4 +151,4 @@ def delete_file(filename):
     return redirect(url_for('index'))
 
 if __name__ == '__main__':
-    app.run(debug=True)
+    app.run(port = 5001, debug=True)
