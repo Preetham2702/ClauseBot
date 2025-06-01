@@ -1,4 +1,9 @@
-Flask
-pandas
-psycopg2-binary
-matplotlib
+Flask==2.3.3
+pandas==2.2.2
+psycopg2-binary==2.9.9
+matplotlib==3.8.4
+opencv-python-headless==4.9.0.80
+imageio==2.34.0
+imageio-ffmpeg==0.4.9
+numpy==1.26.4
+werkzeug==3.0.1

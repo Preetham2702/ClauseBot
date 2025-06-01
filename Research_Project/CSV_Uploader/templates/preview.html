@@ -68,22 +68,24 @@
   </style>
 </head>
 <body>
-  <h1>Preview of {{ filename }}</h1>
+  <h1> Image Data {{ filename }}</h1>
 
   <div class="table-container">
-    {{ tables|safe }}
+    {{ tables[0] |safe }}
   </div>
 
+  {% if show_button %}
   <div class="buttons">
     <form action="{{ url_for('update', filename=filename) }}" method="post">
       <button class="btn update-btn" type="submit">Update to Database</button>
     </form>
-
+  
     <form action="{{ url_for('delete_file', filename=filename) }}" method="post">
       <button class="btn delete-btn" type="submit">Delete File</button>
     </form>
   </div>
-
+  {% endif %}
+  
   {% if message %}
     <div class="success">{{ message }}</div>
   {% endif %}

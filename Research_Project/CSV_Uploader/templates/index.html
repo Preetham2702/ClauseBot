@@ -20,6 +20,33 @@
       margin-bottom: 30px;
     }
 
+    .upload-form input[type="file"] {
+      padding: 10px;
+      font-size: 16px;
+      border: 1px solid #ccc;
+      border-radius: 5px;
+    }
+
+    .upload-form button {
+      padding: 10px 25px;
+      font-size: 16px;
+      margin-left: 10px;
+      background-color: #28a745;
+      color: white;
+      border: none;
+      border-radius: 5px;
+      cursor: pointer;
+    }
+
+    .upload-form button:hover {
+      background-color: #218838;
+    }
+
+    #uploadStatus {
+      margin-top: 10px;
+      font-weight: bold;
+    }
+
     .search-clear-bar {
       display: flex;
       justify-content: space-between;
@@ -33,6 +60,16 @@
       font-size: 16px;
     }
 
+    .filter-container select {
+      width: 50px;
+      padding: 6px;
+      font-size: 22px;
+      margin-left: 10px;
+      border-radius: 5px;
+      border: 1px solid #ccc;
+      text-align: center;
+    }
+
     .clear-button {
       padding: 10px 20px;
       background: #dc3545;
@@ -44,6 +81,22 @@
 
     .clear-button:hover {
       background: #c82333;
+    }
+
+    .video-button {
+      display: inline-block;
+      margin-bottom: 15px;
+      background: #007bff;
+      color: white;
+      padding: 10px 20px;
+      border-radius: 5px;
+      text-decoration: none;
+      font-weight: bold;
+      transition: background 0.3s ease;
+    }
+
+    .video-button:hover {
+      background: #0056b3;
     }
 
     .table-wrapper {
@@ -79,16 +132,40 @@
 <body>
   <h1>CSV File Uploader</h1>
 
-  <form class="upload-form" action="/upload" method="post" enctype="multipart/form-data">
-    <input type="file" name="files[]" multiple required>
-    <button type="submit">Upload</button>
+  <!-- Upload form -->
+  <form class="upload-form" id="uploadForm">
+    <div style="margin-bottom: 10px;">
+      <label>
+        <input type="radio" name="uploadMode" value="files" checked onchange="toggleInput()"> Upload Files
+      </label>
+      <label style="margin-left: 20px;">
+        <input type="radio" name="uploadMode" value="folder" onchange="toggleInput()"> Upload Folder
+      </label>
+    </div>
+
+    <input type="file" id="fileInput" multiple>
+    <button type="button" onclick="uploadFiles()">Upload</button>
+    <p id="uploadStatus"></p>
   </form>
 
   {% if files %}
+  <a href="{{ url_for('generate_video') }}" target="_blank" class="video-button">▶ Video Preview</a>
+  {% endif %}
+
   <form action="/clear_selected" method="post" id="clearForm">
     <div class="search-clear-bar">
-      <div class="search-container">
-        <input type="text" id="searchInput" placeholder="Search files...">
+      <div style="display: flex; align-items: center;">
+        <div class="search-container">
+          <input type="text" id="searchInput" placeholder="Search files...">
+        </div>
+        <div class="filter-container">
+          <select>
+            <option disabled selected>☰</option>
+            <option value="property1">Steel</option>
+            <option value="property2">Iron</option>
+            <option value="property3">Titanium</option>
+          </select>
+        </div>
       </div>
       <button type="submit" class="clear-button">Clear Selected Files</button>
     </div>
@@ -103,33 +180,103 @@
           </tr>
         </thead>
         <tbody>
-          {% for file in files %}
-          <tr>
-            <td><input type="checkbox" name="selected_files" value="{{ file }}"></td>
-            <td class="filename">{{ file }}</td>
-            <td>
-              <a href="{{ url_for('preview', filename=file) }}" target="_blank">Preview</a> |
-              <a href="{{ url_for('view_image_data', filename=file) }}" target="_blank">View Image Data</a>
-            </td>
-          </tr>
-          {% endfor %}
+          {% if files %}
+            {% for file in files %}
+            <tr>
+              <td><input type="checkbox" name="selected_files" value="{{ file }}"></td>
+              <td class="filename">{{ file }}</td>
+              <td>
+                <a href="{{ url_for('preview', filename=file) }}" target="_blank">Image Data</a> |
+                <a href="{{ url_for('view_image_data', filename=file) }}" target="_blank">Thermal Image</a>
+              </td>
+            </tr>
+            {% endfor %}
+          {% else %}
+            <tr>
+              <td colspan="3" style="text-align: center; color: gray;">No files uploaded yet.</td>
+            </tr>
+          {% endif %}
         </tbody>
       </table>
     </div>
   </form>
-  {% endif %}
 
   <script>
+    function toggleInput() {
+      const fileInput = document.getElementById('fileInput');
+      const mode = document.querySelector('input[name="uploadMode"]:checked').value;
+
+      if (mode === 'folder') {
+        fileInput.setAttribute('webkitdirectory', '');
+        fileInput.setAttribute('directory', '');
+        fileInput.removeAttribute('multiple');
+      } else {
+        fileInput.removeAttribute('webkitdirectory');
+        fileInput.removeAttribute('directory');
+        fileInput.setAttribute('multiple', '');
+      }
+    }
+
     const searchInput = document.getElementById('searchInput');
     const rows = document.querySelectorAll('#fileTable tbody tr');
 
-    searchInput.addEventListener('keyup', () => {
+    searchInput?.addEventListener('keyup', () => {
       const query = searchInput.value.toLowerCase();
       rows.forEach(row => {
-        const filename = row.querySelector('.filename').textContent.toLowerCase();
-        row.style.display = filename.includes(query) ? '' : 'none';
+        const filename = row.querySelector('.filename');
+        if (filename) {
+          const text = filename.textContent.toLowerCase();
+          row.style.display = text.includes(query) ? '' : 'none';
+        }
       });
     });
+
+    async function uploadFiles() {
+      const input = document.getElementById('fileInput');
+      let files = Array.from(input.files);
+      const status = document.getElementById('uploadStatus');
+
+      if (files.length === 0) {
+        alert('Please select files or a folder.');
+        return;
+      }
+
+      files.sort((a, b) => {
+        return (a.webkitRelativePath || a.name).localeCompare(b.webkitRelativePath || b.name);
+      });
+
+      const CHUNK_SIZE = 500;
+      status.textContent = `Uploading ${files.length} files...`;
+
+      for (let i = 0; i < files.length; i += CHUNK_SIZE) {
+        const chunk = files.slice(i, i + CHUNK_SIZE);
+        const formData = new FormData();
+        chunk.forEach(file => {
+          formData.append('files[]', file);
+        });
+
+        try {
+          const response = await fetch('/upload', {
+            method: 'POST',
+            body: formData
+          });
+
+          if (!response.ok) {
+            throw new Error(`Chunk ${i / CHUNK_SIZE + 1} failed`);
+          }
+
+          status.textContent = `Uploaded ${Math.min(i + CHUNK_SIZE, files.length)} / ${files.length} files...`;
+        } catch (err) {
+          status.textContent = `Error: ${err.message}`;
+          break;
+        }
+      }
+
+      status.textContent = 'Upload complete.';
+      setTimeout(() => {
+        window.location.reload();
+      }, 1000);
+    }
   </script>
 </body>
 </html>
