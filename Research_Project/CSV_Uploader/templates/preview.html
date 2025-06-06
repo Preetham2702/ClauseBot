@@ -16,6 +16,11 @@
 
     .table-container {
       margin-bottom: 30px;
+      overflow-x: auto;
+      background: white;
+      padding: 20px;
+      border-radius: 8px;
+      box-shadow: 0 0 10px rgba(0,0,0,0.1);
     }
 
     table {
@@ -36,7 +41,7 @@
     .buttons {
       display: flex;
       gap: 10px;
-      margin-bottom: 20px;
+      margin-top: 20px;
     }
 
     .btn {
@@ -45,6 +50,7 @@
       color: white;
       border-radius: 5px;
       cursor: pointer;
+      font-weight: bold;
     }
 
     .update-btn {
@@ -55,7 +61,7 @@
       background: #dc3545;
     }
 
-    .success {
+    .success{
       color: green;
       font-weight: bold;
       margin-top: 20px;
@@ -63,15 +69,21 @@
 
     a.back-link {
       display: inline-block;
-      margin-top: 20px;
+      margin-top: 30px;
+      color: #007bff;
+      text-decoration: none;
+    }
+
+    a.back-link:hover {
+      text-decoration: underline;
     }
   </style>
 </head>
 <body>
-  <h1> Image Data {{ filename }}</h1>
+  <h1>Image Data: {{ filename }}</h1>
 
   <div class="table-container">
-    {{ tables[0] |safe }}
+    {{ tables[0] | safe }}
   </div>
 
   {% if show_button %}
@@ -79,17 +91,17 @@
     <form action="{{ url_for('update', filename=filename) }}" method="post">
       <button class="btn update-btn" type="submit">Update to Database</button>
     </form>
-  
+
     <form action="{{ url_for('delete_file', filename=filename) }}" method="post">
       <button class="btn delete-btn" type="submit">Delete File</button>
     </form>
   </div>
   {% endif %}
-  
+
   {% if message %}
     <div class="success">{{ message }}</div>
   {% endif %}
 
-  <a class="back-link" href="/">← Back to file list</a>
+  <a class="back-link" href="{{ url_for('index') }}">← Back to File List</a>
 </body>
 </html>

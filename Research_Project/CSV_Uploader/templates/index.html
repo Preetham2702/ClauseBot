@@ -9,6 +9,25 @@
       background: #f4f4f4;
     }
 
+    .top-buttons {
+      display: flex;
+      justify-content: space-between;
+      margin-bottom: 20px;
+    }
+
+    .top-buttons a {
+      text-decoration: none;
+      background: #f0f0f0;
+      padding: 10px 20px;
+      border-radius: 5px;
+      color: #007bff;
+      font-weight: bold;
+    }
+
+    .top-buttons a:hover {
+      background-color: #e0e0e0;
+    }
+
     h1 {
       text-align: center;
       font-size: 3em;
@@ -130,6 +149,12 @@
   </style>
 </head>
 <body>
+  <!-- Navigation Buttons at Top -->
+  <div class="top-buttons">
+    <a href="{{ url_for('select_machine') }}">← Select Another Machine</a>
+    <a href="{{ url_for('select_machine') }}">↩ Back to Machine Page</a>
+  </div>
+
   <h1>CSV File Uploader</h1>
 
   <!-- Upload form -->

@@ -26,14 +26,87 @@ port_id = '5340'
 if not os.path.exists(UPLOAD_FOLDER):
     os.makedirs(UPLOAD_FOLDER)
 
-@app.route('/')
+@app.route('/',methods=['GET', 'POST'])
+def root():
+    return redirect(url_for('select_machine'))
+
+@app.route('/machine', methods=['GET', 'POST'])
+def select_machine():
+    if request.method == 'POST':
+        name = request.form['machine_name']
+        number = request.form['machine_number']
+        material = request.form['material']
+
+        try:
+            conn = psycopg2.connect(host=hostname, dbname=database, user=username, password=pwd, port=port_id)
+            cur = conn.cursor()
+            # Insert machine if not already exists
+            cur.execute("INSERT INTO Machine (M_ID, M_Name) VALUES (%s, %s) ON CONFLICT (M_ID) DO NOTHING", (number, name))
+
+            # Check if the material exists
+            cur.execute("SELECT 1 FROM Material WHERE Material_Type = %s", (material,))
+            if cur.fetchone():
+                # Update the material with machine id
+                cur.execute("UPDATE Material SET M_ID = %s WHERE Material_Type = %s", (number, material))
+            else:
+                # Insert the material with machine id
+                cur.execute("INSERT INTO Material (Material_Type, M_ID) VALUES (%s, %s)", (material, number))
+
+            conn.commit()
+        except Exception as e:
+            return f"Error: {e}"
+        finally:
+            cur.close()
+            conn.close()
+
+        return redirect(url_for('index'))
+
+    conn = psycopg2.connect(host=hostname, dbname=database, user=username, password=pwd, port=port_id)
+    cur = conn.cursor()
+    cur.execute("SELECT Material_Type FROM Material")
+    materials = [row[0] for row in cur.fetchall()]
+    cur.close()
+    conn.close()
+
+    return render_template('machine.html', materials=materials)
+
+    
+@app.route('/add_material', methods=['GET', 'POST'])
+def add_material():
+    if request.method == 'POST':
+        material_type = request.form['material_type']
+        machine_id = request.form['machine_id']
+
+        try:
+            conn = psycopg2.connect(host=hostname, dbname=database, user=username, password=pwd, port=port_id)
+            cur = conn.cursor()
+
+            # Ensure machine exists before linking
+            cur.execute("SELECT 1 FROM Machine WHERE M_ID = %s", (machine_id,))
+            if not cur.fetchone():
+                cur.execute("INSERT INTO Machine (M_ID, M_Name) VALUES (%s, %s)", (machine_id, f"Machine_{machine_id}"))
+
+            # Now insert the material
+            cur.execute("INSERT INTO Material (Material_Type, M_ID) VALUES (%s, %s)", (material_type, machine_id))
+            conn.commit()
+        except Exception as e:
+            return f"Error: {e}"
+        finally:
+            cur.close()
+            conn.close()
+        return redirect(url_for('select_machine'))
+
+    return render_template('add_material.html')
+
+
+@app.route('/index', methods = ['GET'])
 def index():
     files = os.listdir(app.config['UPLOAD_FOLDER'])
     cleared_files = session.get('cleared_files', [])
     visible_files = [f for f in files if f not in cleared_files and f.endswith('.csv')]
     return render_template('index.html', files=visible_files)
 
-@app.route('/upload', methods=['POST'])
+@app.route('/upload', methods=['POST','GET'])
 def upload_file():
     if 'files[]' not in request.files:
         return "No file part", 400
@@ -135,7 +208,7 @@ def view_image_data(filename):
 
 @app.route('/update/<filename>', methods=['POST'])
 def update(filename):
-    filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
+    filepath = os.path.join(UPLOAD_FOLDER, filename)
     try:
         with open(filepath, 'r') as file:
             content = file.read().replace('\r', '').strip()
@@ -150,30 +223,41 @@ def update(filename):
 
         max_len = max(len(row) for row in image_lines)
         image_lines = [row for row in image_lines if len(row) == max_len]
-        df = pd.DataFrame(image_lines)
+        df = pd.DataFrame(image_lines).astype(float)
+        df.insert(0, 'Row_Index', range(1, len(df) + 1))
+
         conn = psycopg2.connect(host=hostname, dbname=database, user=username, password=pwd, port=port_id)
         cur = conn.cursor()
-        table_name = os.path.splitext(secure_filename(filename))[0].lower().replace(" ", "_")
-        cur.execute(f'DROP TABLE IF EXISTS "{table_name}";')
-        columns = ', '.join([f'"col{i}" TEXT' for i in range(df.shape[1])])
-        cur.execute(f'CREATE TABLE "{table_name}" ({columns});')
+
+        # Ensure entry in Sensor3Data table
+        cur.execute("INSERT INTO Sensor3 (File_Path, Sensor_ID, Type) VALUES (%s, %s, %s) ON CONFLICT (File_Path) DO NOTHING", (filename, 1, 'IR_Camera'))
 
         for _, row in df.iterrows():
-            values = "', '".join(str(v).replace("'", "''") for v in row)
-            cur.execute(f"INSERT INTO \"{table_name}\" VALUES ('{values}');")
+            values = [filename, int(row['Row_Index'])] + [float(row.get(i, None)) if pd.notna(row.get(i, None)) else None for i in df.columns[1:]]
+            cur.execute("""
+                INSERT INTO Sensor3_IRCamera (
+                    File_Path,Row_Index,
+                    Col1, Col2, Col3, Col4, Col5, Col6, Col7, Col8, Col9, Col10,
+                    Col11, Col12, Col13, Col14, Col15, Col16, Col17, Col18, Col19, Col20
+                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
+                          %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            """, values)
+
         conn.commit()
-        message = f"'{filename}' uploaded to database successfully!"
-        df.columns = [f"col{i+1}" for i in range(df.shape[1])]
-        df_html = df.to_html(classes='table table-bordered', index=False, escape=False)
+        message = f"'{filename}' inserted into Sensor3_IRCamera successfully!"
+        df.columns = [f"Col{i+1}" for i in range(df.shape[1])]
+        table_html = df.to_html(classes='table table-bordered', index=False)
 
-        return render_template('preview.html', tables=[df_html], filename=filename, message=message)
-
+        return render_template('preview.html', tables=[df.to_html(classes='table table-bordered', index=False)], filename=filename, message=message)
+  
+        
     except Exception as e:
-        return f"Error uploading to database: {e}", 500
-
+        return f"Error uploading to Sensor3_IRCameraData: {e}", 500
     finally:
         if 'cur' in locals(): cur.close()
         if 'conn' in locals(): conn.close()
+
+
 
 @app.route('/delete/<filename>', methods=['POST'])
 def delete_file(filename):

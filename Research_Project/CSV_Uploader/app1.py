@@ -26,6 +26,8 @@ metadata = MetaData()
 if not os.path.exists(UPLOAD_FOLDER):
     os.makedirs(UPLOAD_FOLDER)
 
+
+
 @app.route('/')
 def index():
     files = os.listdir(app.config['UPLOAD_FOLDER'])
