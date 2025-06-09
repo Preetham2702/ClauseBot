@@ -121,90 +121,97 @@ def upload_file():
                 session['cleared_files'] = cleared_files
     return redirect(url_for('index'))
 
-@app.route('/clear_selected', methods=['POST'])
-def clear_selected():
-    selected_files = request.form.getlist('selected_files')
-    cleared_files = session.get('cleared_files', [])
-    for filename in selected_files:
-        if filename not in cleared_files:
-            cleared_files.append(filename)
-    session['cleared_files'] = cleared_files
-    return redirect(url_for('index'))
+def extract_image_dataframe(filepath, expected_cols=20):
+    with open(filepath, 'r') as file:
+        lines = file.read().replace('\r', '').strip().split('\n')
+
+    image_lines = []
+    start_data = False
+
+    for line in lines:
+        line = line.strip()
+        if not start_data:
+            if "Image Data" in line:
+                start_data = True
+            continue
+        if not line:
+            continue
+
+        parts = [p.strip() for p in line.split(';') if p.strip()]
+        try:
+            float_parts = [float(p) for p in parts[:expected_cols]]
+            if len(float_parts) == expected_cols:
+                image_lines.append(float_parts)
+        except ValueError:
+            continue
+
+    if not image_lines:
+        raise ValueError("No valid numeric data found.")
+
+    df = pd.DataFrame(image_lines)
+    df.columns = [f"Col{i+1}" for i in range(expected_cols)]
+    return df
 
 @app.route('/preview/<filename>')
 def preview(filename):
-
     filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
-
     try:
-        image_lines = []
-        start_data = False
-
-        with open(filepath, 'r') as file:
-            for line in file:
-                line = line.strip().replace('\r', '')
-
-                # Start collecting after 'Image Data'
-                if not start_data:
-                    if "Image Data" in line:
-                        start_data = True
-                    continue
-
-                # Skip empty lines
-                if not line:
-                    continue
-
-                parts = [p.strip() for p in line.split(';') if p.strip()]
-                if parts and all(part.replace('.', '', 1).isdigit() for part in parts):
-                    image_lines.append([float(p) for p in parts])
-
-        if not image_lines:
-            return f"No valid numeric data found in {filename}", 400
-
-        max_len = max(len(row) for row in image_lines)
-        image_lines = [row for row in image_lines if len(row) == max_len]
-
-        df = pd.DataFrame(image_lines)
-        df.columns = [f"col{i+1}" for i in range(max_len)]
+        df = extract_image_dataframe(filepath)
         df_html = df.to_html(classes='table table-bordered', index=False, escape=False)
-
         return render_template('preview.html', tables=[df_html], filename=filename, show_button=True)
-        #return f"<pre>{image_lines}</pre>"
-
     except Exception as e:
         return f"Error: {e}", 500
+
 
 @app.route('/view/<filename>')
 def view_image_data(filename):
     filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
     try:
-        with open(filepath, 'r') as file:
-            content = file.read().replace('\r', '').strip()
-        lines = content.split('\n')
-        image_lines = []
-        for line in lines:
-            parts = [p.strip() for p in line.split(';') if p.strip() != '']
-            if all(part.replace('.', '', 1).isdigit() for part in parts):
-                image_lines.append([float(p) for p in parts])
-        max_len = max(len(row) for row in image_lines)
-        image_lines = [row for row in image_lines if len(row) == max_len]
-        df = pd.DataFrame(image_lines)
-        df.columns = [f"col{i+1}" for i in range(max_len)]
-        norm = plt.Normalize(df.values.min(), df.values.max())
+        # Step 1: Extract the DataFrame using the shared parser
+        df = extract_image_dataframe(filepath)
+
+        # Step 2: Define your thermal gradient (purple → violet → pink → orange → red)
+        color_gradient = ["#800080", "#8B00FF", "#FF69B4", "#FFA500", "#FF0000"]
+
+        def hex_to_rgb(hex_color):
+            return tuple(int(hex_color[i:i+2], 16) for i in (1, 3, 5))
+
+        def rgb_to_hex(rgb):
+            return '#{:02x}{:02x}{:02x}'.format(*rgb)
+
+        def get_gradient_color(value, vmin, vmax):
+            norm_val = (value - vmin) / (vmax - vmin)
+            norm_val = max(0.0, min(1.0, norm_val))  # Clamp
+
+            n_segments = len(color_gradient) - 1
+            segment = norm_val * n_segments
+            i = int(segment)
+            frac = segment - i
+
+            if i >= n_segments:
+                return color_gradient[-1]
+
+            rgb1 = hex_to_rgb(color_gradient[i])
+            rgb2 = hex_to_rgb(color_gradient[i + 1])
+            interp_rgb = tuple(int(rgb1[j] + (rgb2[j] - rgb1[j]) * frac) for j in range(3))
+            return rgb_to_hex(interp_rgb)
+
+        # Step 3: Normalize and color each cell
+        vmin, vmax = df.values.min(), df.values.max()
         df_html = '<table class="table table-bordered" style="border-collapse: collapse;">'
-        for i, row in df.iterrows():
+        for row in df.values:
             df_html += '<tr>'
-            cells = row if i % 2 == 0 else row[::-1]
-            for j, val in enumerate(cells):
-                color_val = norm(val)
-                color = cm.rainbow(color_val)
-                hex_color = '#%02x%02x%02x' % tuple(int(255 * c) for c in color[:3])
-                df_html += f'<td style="background-color: {hex_color}; color: black; text-align: center;">{val:.2f}</td>'
+            for val in row:
+                color = get_gradient_color(val, vmin, vmax)
+                df_html += f'<td style="background-color: {color}; color: black; text-align: center;">{val:.2f}</td>'
             df_html += '</tr>'
         df_html += '</table>'
+
         return render_template('preview.html', tables=[df_html], filename=filename, show_button=False)
+
     except Exception as e:
         return f"Error: {e}", 500
+
 
 @app.route('/update/<filename>', methods=['POST'])
 def update(filename):
@@ -224,7 +231,6 @@ def update(filename):
         max_len = max(len(row) for row in image_lines)
         image_lines = [row for row in image_lines if len(row) == max_len]
         df = pd.DataFrame(image_lines).astype(float)
-        df.insert(0, 'Row_Index', range(1, len(df) + 1))
 
         conn = psycopg2.connect(host=hostname, dbname=database, user=username, password=pwd, port=port_id)
         cur = conn.cursor()
@@ -232,15 +238,16 @@ def update(filename):
         # Ensure entry in Sensor3Data table
         cur.execute("INSERT INTO Sensor3 (File_Path, Sensor_ID, Type) VALUES (%s, %s, %s) ON CONFLICT (File_Path) DO NOTHING", (filename, 1, 'IR_Camera'))
 
-        for _, row in df.iterrows():
-            values = [filename, int(row['Row_Index'])] + [float(row.get(i, None)) if pd.notna(row.get(i, None)) else None for i in df.columns[1:]]
+        for idx, row in df.iterrows():
+            row_index = idx + 1  # 1-based index for DB
+            values = [filename, row_index] + [row[i] if pd.notna(row[i]) else None for i in df.columns]
             cur.execute("""
                 INSERT INTO Sensor3_IRCamera (
-                    File_Path,Row_Index,
+                    File_Path, Row_Index,
                     Col1, Col2, Col3, Col4, Col5, Col6, Col7, Col8, Col9, Col10,
                     Col11, Col12, Col13, Col14, Col15, Col16, Col17, Col18, Col19, Col20
-                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
-                          %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
+                            %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             """, values)
 
         conn.commit()
@@ -258,13 +265,24 @@ def update(filename):
         if 'conn' in locals(): conn.close()
 
 
+@app.route('/clear_selected', methods=['POST'])
+def clear_selected():
+    selected_files = request.form.getlist('selected_files')
+
+    for filename in selected_files:
+        file_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
+        if os.path.exists(file_path):
+            os.remove(file_path)  # Delete file from uploads 
+
+    return redirect(url_for('index'))
+
 
 @app.route('/delete/<filename>', methods=['POST'])
 def delete_file(filename):
-    cleared_files = session.get('cleared_files', [])
-    if filename not in cleared_files:
-        cleared_files.append(filename)
-        session['cleared_files'] = cleared_files
+    file_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
+    if os.path.exists(file_path):
+        os.remove(file_path)  # Delete file from uploads 
+
     return redirect(url_for('index'))
 
 
