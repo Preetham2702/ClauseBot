@@ -102,22 +102,6 @@
       background: #c82333;
     }
 
-    .video-button {
-      display: inline-block;
-      margin-bottom: 15px;
-      background: #007bff;
-      color: white;
-      padding: 10px 20px;
-      border-radius: 5px;
-      text-decoration: none;
-      font-weight: bold;
-      transition: background 0.3s ease;
-    }
-
-    .video-button:hover {
-      background: #0056b3;
-    }
-
     .table-wrapper {
       max-height: 600px;
       overflow-y: auto;
@@ -146,9 +130,74 @@
     tr:hover {
       background-color: #f9f9f9;
     }
+     /* New: loading modal styles */
+     #loadingModal {
+      display: none;
+      position: fixed;
+      top: 0; left: 0;
+      width: 100%; height: 100%;
+      background-color: rgba(0,0,0,0.5);
+      z-index: 9999;
+      align-items: center;
+      justify-content: center;
+    }
+
+    #loadingModal div {
+      background: white;
+      padding: 30px;
+      border-radius: 10px;
+      font-size: 20px;
+      text-align: center;
+    }
+    /* Video button style */
+    .video-button {
+    margin-left: 15px;
+    font-size: 14px;
+    background: #ffc107;
+    padding: 4px 10px;
+    border-radius: 5px;
+    color: black;
+    text-decoration: none;
+    }
+
+    .video-button:hover {
+      background-color: #e0a800;
+      color: black;
+    
+    }
+    .video-section {
+      margin-bottom: 15px;
+    }
+
+    .video-top-button {
+      display: inline-block;
+      padding: 10px 20px;
+      background: #17a2b8;
+      color: white;
+      text-decoration: none;
+      border-radius: 5px;
+      font-weight: bold;
+    }
+
+    .video-top-button:hover {
+      background-color: #138496;
+      color: white;
+    }
+
   </style>
+<!DOCTYPE html>
+<html>
+<head>
+  <title>CSV File Uploader</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
 </head>
 <body>
+
+  <!-- Loading Modal -->
+  <div id="loadingModal">
+    <div>⏳ Generating video, please wait...</div>
+  </div>
+
   <!-- Navigation Buttons at Top -->
   <div class="top-buttons">
     <a href="{{ url_for('select_machine') }}">← Select Another Machine</a>
@@ -157,25 +206,16 @@
 
   <h1>CSV File Uploader</h1>
 
-  <!-- Upload form -->
   <form class="upload-form" id="uploadForm">
     <div style="margin-bottom: 10px;">
-      <label>
-        <input type="radio" name="uploadMode" value="files" checked onchange="toggleInput()"> Upload Files
-      </label>
-      <label style="margin-left: 20px;">
-        <input type="radio" name="uploadMode" value="folder" onchange="toggleInput()"> Upload Folder
-      </label>
+      <label><input type="radio" name="uploadMode" value="files" checked onchange="toggleInput()"> Upload Files</label>
+      <label style="margin-left: 20px;"><input type="radio" name="uploadMode" value="folder" onchange="toggleInput()"> Upload Folder</label>
     </div>
 
     <input type="file" id="fileInput" multiple>
     <button type="button" onclick="uploadFiles()">Upload</button>
     <p id="uploadStatus"></p>
   </form>
-
-  {% if files %}
-  <a href="{{ url_for('generate_video') }}" target="_blank" class="video-button">▶ Video Preview</a>
-  {% endif %}
 
   <form action="/clear_selected" method="post" id="clearForm">
     <div class="search-clear-bar">
@@ -195,42 +235,77 @@
       <button type="submit" class="clear-button">Clear Selected Files</button>
     </div>
 
+    <div class="video-section">
+      <a href="#" class="video-top-button"onclick="return showLoadingAndRedirect('{{ url_for('generate_top_level_video', folder=folder) }}');">🎬 Video from Individual Files</a>
+    </div>
+
     <div class="table-wrapper">
       <table id="fileTable">
         <thead>
-          <tr>
-            <th>Select</th>
-            <th>Filename</th>
-            <th>Action</th>
-          </tr>
+          <tr><th>Select</th><th>Filename</th><th>Action</th></tr>
         </thead>
         <tbody>
           {% if files %}
-            {% for file in files %}
-            <tr>
-              <td><input type="checkbox" name="selected_files" value="{{ file }}"></td>
-              <td class="filename">{{ file }}</td>
-              <td>
-                <a href="{{ url_for('preview', filename=file) }}" target="_blank">Image Data</a> |
-                <a href="{{ url_for('view_image_data', filename=file) }}" target="_blank">Thermal Image</a>
-              </td>
-            </tr>
+            {% set folder_index = 0 %}
+            {% if files[''] %}
+              {% for file in files[''] %}
+              <tr>
+                <td><input type="checkbox" name="selected_files" value="{{ file }}"></td>
+                <td class="filename">{{ file }}</td>
+                <td>
+                  <a href="{{ url_for('preview', filename=file) }}">Image Data</a>
+                  <a href="{{ url_for('view_image_data', filename=file) }}">Thermal Image</a>
+                </td>
+              </tr>
+              {% endfor %}
+            {% endif %}
+            {% for folder, folder_files in files.items() if folder != '' %}
+              {% set folder_index = folder_index + 1 %}
+              <tr class="folder-header" onclick="toggleFolder('folder-{{ folder_index }}')" style="cursor:pointer; font-weight:bold; background-color: #f8f8f8;">
+                <td><input type="checkbox" name="selected_files" value="{{ folder }}/"></td>
+                <td colspan="2">
+                  📁 {{ folder }}
+                  <a href="#" class="video-button"onclick="return showLoadingAndRedirect('{{ url_for('generate_folder_video', folder=folder) }}');">🎬 Folder Video</a>
+                </td>
+              </tr>
+              {% for file in folder_files %}
+                {% if file.startswith(folder + '/') %}
+                  {% set full_path = file %}
+                {% else %}
+                  {% set full_path = folder ~ '/' ~ file %}
+                {% endif %}
+                <tr class="folder-files folder-{{ folder_index }}" style="display: none;">
+                  <td><input type="checkbox" name="selected_files" value="{{ full_path }}"></td>
+                  <td class="filename">{{ file }}</td>
+                  <td>
+                    <a href="{{ url_for('preview', filename=full_path) }}">Image Data</a>
+                    <a href="{{ url_for('view_image_data', filename=full_path) }}">Thermal Image</a>
+                    <form action="{{ url_for('update', filename=full_path) }}" method="post">
+                    </form>
+                  </td>
+                </tr>
+              {% endfor %}
             {% endfor %}
           {% else %}
-            <tr>
-              <td colspan="3" style="text-align: center; color: gray;">No files uploaded yet.</td>
-            </tr>
+            <tr><td colspan="3" style="text-align: center; color: gray;">No files uploaded yet.</td></tr>
           {% endif %}
         </tbody>
       </table>
     </div>
   </form>
-
+  
   <script>
+    function toggleFolder(folderClass) {
+      const rows = document.querySelectorAll(`.${folderClass}`);
+      rows.forEach(row => {
+        row.style.display = row.style.display === 'none' ? '' : 'none';
+      });
+    }
+
     function toggleInput() {
       const fileInput = document.getElementById('fileInput');
       const mode = document.querySelector('input[name="uploadMode"]:checked').value;
-
+  
       if (mode === 'folder') {
         fileInput.setAttribute('webkitdirectory', '');
         fileInput.setAttribute('directory', '');
@@ -260,7 +335,7 @@
       const input = document.getElementById('fileInput');
       let files = Array.from(input.files);
       const status = document.getElementById('uploadStatus');
-
+  
       if (files.length === 0) {
         alert('Please select files or a folder.');
         return;
@@ -277,7 +352,8 @@
         const chunk = files.slice(i, i + CHUNK_SIZE);
         const formData = new FormData();
         chunk.forEach(file => {
-          formData.append('files[]', file);
+          const relativePath = file.webkitRelativePath || file.name;
+          formData.append('files[]', file, relativePath);
         });
 
         try {
@@ -301,6 +377,15 @@
       setTimeout(() => {
         window.location.reload();
       }, 1000);
+    }
+
+    function showLoadingAndRedirect(url) {
+      const modal = document.getElementById('loadingModal');
+      modal.style.display = 'flex';
+      setTimeout(() => {
+        window.location.href = url;
+      }, 300);
+      return false;
     }
   </script>
 </body>
