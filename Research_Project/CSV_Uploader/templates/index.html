@@ -184,6 +184,39 @@
       color: white;
     }
 
+    /* Modal overlay */
+    .loading-modal {
+      display: none;
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background: rgba(0, 0, 0, 0.6);
+      z-index: 1000;
+      justify-content: center;
+      align-items: center;
+      color: white;
+    }
+
+    /* Modal content box */
+    .loading-modal-content {
+      background: #333;
+      padding: 20px;
+      border-radius: 8px;
+      position: relative;
+      text-align: center;
+    }
+
+    /* Close (X) button */
+    .close-button {
+      position: absolute;
+      top: 5px;
+      right: 10px;
+      cursor: pointer;
+      font-size: 18px;
+    }
+
   </style>
 <!DOCTYPE html>
 <html>
@@ -193,15 +226,33 @@
 </head>
 <body>
 
-  <!-- Loading Modal -->
-  <div id="loadingModal">
-    <div>⏳ Generating video, please wait...</div>
+  <div id="loadingModal" class="loading-modal">
+    <div class="loading-modal-content">
+      <span id="cancelButton" class="close-button">&times;</span>
+      <p>⏳ Generating video, please wait...</p>
+    </div>
+  </div>
+
+  <!-- Bulk upload loading -->
+  <div id="bulkLoadingModal" class="loading-modal">
+    <div class="loading-modal-content">
+      <h3>Uploading files...</h3>
+      <div id="progressText">Processing folder, please wait ⏳</div>
+      <button onclick="cancelBulkUpload()" style="margin-top:10px;">Cancel Upload</button>
+    </div>
+  </div>
+
+  <!-- Success modal -->
+  <div id="successModal" class="loading-modal">
+    <div class="loading-modal-content">
+      <h3 style="color:green;">✅ Bulk Upload Completed!</h3>
+      <button onclick="location.reload()">OK</button>
+    </div>
   </div>
 
   <!-- Navigation Buttons at Top -->
   <div class="top-buttons">
-    <a href="{{ url_for('select_machine') }}">← Select Another Machine</a>
-    <a href="{{ url_for('select_machine') }}">↩ Back to Machine Page</a>
+    <a href="{{ url_for('machine',stage=stage) }}">↩ Back to Machine Page</a>
   </div>
 
   <h1>CSV File Uploader</h1>
@@ -218,6 +269,9 @@
   </form>
 
   <form action="/clear_selected" method="post" id="clearForm">
+    <input type="hidden" name="stage" value="{{ stage }}">
+    <input type="hidden" name="machine_id" value="{{ machine_id }}">
+    <input type="hidden" name="material_id" value="{{ material_id }}">
     <div class="search-clear-bar">
       <div style="display: flex; align-items: center;">
         <div class="search-container">
@@ -235,9 +289,11 @@
       <button type="submit" class="clear-button">Clear Selected Files</button>
     </div>
 
+    {% if stage == 'ircamera' %}
     <div class="video-section">
       <a href="#" class="video-top-button"onclick="return showLoadingAndRedirect('{{ url_for('generate_top_level_video', folder=folder) }}');">🎬 Video from Individual Files</a>
     </div>
+    {% endif %}
 
     <div class="table-wrapper">
       <table id="fileTable">
@@ -247,27 +303,41 @@
         <tbody>
           {% if files %}
             {% set folder_index = 0 %}
+            
+            {# Handle individual files directly in root folder #}
             {% if files[''] %}
               {% for file in files[''] %}
-              <tr>
-                <td><input type="checkbox" name="selected_files" value="{{ file }}"></td>
-                <td class="filename">{{ file }}</td>
-                <td>
-                  <a href="{{ url_for('preview', filename=file) }}">Image Data</a>
-                  <a href="{{ url_for('view_image_data', filename=file) }}">Thermal Image</a>
-                </td>
-              </tr>
+                {% set full_path = file %}  {# Define full_path for root files too #}
+                <tr>
+                  <td><input type="checkbox" name="selected_files" value="{{ full_path }}"></td>
+                  <td class="filename">{{ full_path }}</td>
+                  <td>
+                    {% if stage == 'ircamera' %}
+                      <a href="{{ url_for('preview_ircamera', filename=full_path, machine_id=machine_id, material_id=material_id, stage=stage) }}">Image Data</a>
+                      <a href="{{ url_for('view_ircamera', filename=full_path, machine_id=machine_id, material_id=material_id, stage=stage) }}">Thermal Image</a>
+                      <form action="{{ url_for('s3ircamera_update', filename=full_path) }}" method="post"></form>
+                    {% else %}
+                      <span style="color: grey;">No preview available</span>
+                    {% endif %}
+                  </td>
+                </tr>
               {% endfor %}
             {% endif %}
+        
+            {# Handle files inside folders #}
             {% for folder, folder_files in files.items() if folder != '' %}
               {% set folder_index = folder_index + 1 %}
               <tr class="folder-header" onclick="toggleFolder('folder-{{ folder_index }}')" style="cursor:pointer; font-weight:bold; background-color: #f8f8f8;">
                 <td><input type="checkbox" name="selected_files" value="{{ folder }}/"></td>
                 <td colspan="2">
                   📁 {{ folder }}
-                  <a href="#" class="video-button"onclick="return showLoadingAndRedirect('{{ url_for('generate_folder_video', folder=folder) }}');">🎬 Folder Video</a>
+                  {% if stage == 'ircamera' %}
+                    <a href="#" class="video-button"onclick="return showLoadingAndRedirect('{{ url_for('generate_folder_video', folder=folder) }}');">🎬 Folder Video</a>
+                    <button type="button" class="bulk-button"onclick="startBulkUpload('{{ url_for('bulk_update_folder', folder=folder, machine_id=machine_id, material_id=material_id, stage=stage) }}')">🔄 Bulk Update to Database</button>
+                  {% endif %}
                 </td>
               </tr>
+        
               {% for file in folder_files %}
                 {% if file.startswith(folder + '/') %}
                   {% set full_path = file %}
@@ -278,10 +348,13 @@
                   <td><input type="checkbox" name="selected_files" value="{{ full_path }}"></td>
                   <td class="filename">{{ file }}</td>
                   <td>
-                    <a href="{{ url_for('preview', filename=full_path) }}">Image Data</a>
-                    <a href="{{ url_for('view_image_data', filename=full_path) }}">Thermal Image</a>
-                    <form action="{{ url_for('update', filename=full_path) }}" method="post">
-                    </form>
+                    {% if stage == 'ircamera' %}
+                      <a href="{{ url_for('preview_ircamera', filename=full_path, machine_id=machine_id, material_id=material_id, stage=stage) }}">Image Data</a>
+                      <a href="{{ url_for('view_ircamera', filename=full_path, machine_id=machine_id, material_id=material_id, stage=stage) }}">Thermal Image</a>
+                      <form action="{{ url_for('s3ircamera_update', filename=full_path) }}" method="post"></form>
+                    {% else %}
+                      <span style="color: grey;">No preview available</span>
+                    {% endif %}
                   </td>
                 </tr>
               {% endfor %}
@@ -289,11 +362,11 @@
           {% else %}
             <tr><td colspan="3" style="text-align: center; color: gray;">No files uploaded yet.</td></tr>
           {% endif %}
-        </tbody>
+        </tbody>        
       </table>
     </div>
   </form>
-  
+
   <script>
     function toggleFolder(folderClass) {
       const rows = document.querySelectorAll(`.${folderClass}`);
@@ -305,7 +378,7 @@
     function toggleInput() {
       const fileInput = document.getElementById('fileInput');
       const mode = document.querySelector('input[name="uploadMode"]:checked').value;
-  
+
       if (mode === 'folder') {
         fileInput.setAttribute('webkitdirectory', '');
         fileInput.setAttribute('directory', '');
@@ -335,7 +408,7 @@
       const input = document.getElementById('fileInput');
       let files = Array.from(input.files);
       const status = document.getElementById('uploadStatus');
-  
+
       if (files.length === 0) {
         alert('Please select files or a folder.');
         return;
@@ -379,14 +452,63 @@
       }, 1000);
     }
 
+    let controller = null;
+
     function showLoadingAndRedirect(url) {
-      const modal = document.getElementById('loadingModal');
-      modal.style.display = 'flex';
-      setTimeout(() => {
-        window.location.href = url;
-      }, 300);
+      const modal = document.getElementById("loadingModal");
+      modal.style.display = "flex";
+
+      controller = new AbortController();
+
+      fetch(url, { signal: controller.signal })
+        .then(response => {
+          if (response.ok) {
+            return response.url;
+          } else {
+            throw new Error("Video generation failed.");
+          }
+        })
+        .then(videoUrl => {
+          window.location.href = videoUrl;
+        })
+        .catch(error => {
+          if (error.name === "AbortError") {
+            console.log("Video generation canceled.");
+          } else {
+            alert(error.message || "Error generating video.");
+          }
+          modal.style.display = "none";
+        });
+
       return false;
     }
+
+    document.getElementById("cancelButton").onclick = () => {
+      if (controller) controller.abort();
+      document.getElementById("loadingModal").style.display = "none";
+    };
+
+    // Bulk upload logic
+    let cancelRequested = false;
+    function startBulkUpload(url) {
+      cancelRequested = false;
+      document.getElementById("bulkLoadingModal").style.display = "block";
+      fetch(url, { method: 'POST' })
+        .then(() => {
+          document.getElementById("bulkLoadingModal").style.display = "none";
+          document.getElementById("successModal").style.display = "block";
+        })
+        .catch(() => {
+          document.getElementById("bulkLoadingModal").style.display = "none";
+          alert("Upload failed!");
+        });
+    }
+    function cancelBulkUpload() {
+      cancelRequested = true;
+      document.getElementById("bulkLoadingModal").style.display = "none";
+      alert("Upload canceled.");
+    }
+    
   </script>
 </body>
 </html>

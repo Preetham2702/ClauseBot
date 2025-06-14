@@ -1,99 +1,89 @@
 <!DOCTYPE html>
 <html>
 <head>
-  <title>Select Machine</title>
+  <title>Enter Machine Details</title>
   <style>
     body {
       font-family: Arial, sans-serif;
-      padding: 40px;
-      background: #f9f9f9;
+      padding: 50px;
+      background-color: #f9f9f9;
     }
-
     h1 {
       text-align: center;
-      font-size: 2.5em;
-      margin-bottom: 30px;
+      margin-bottom: 40px;
     }
-
     form {
       max-width: 500px;
-      margin: 0 auto;
+      margin: auto;
       background: white;
       padding: 30px;
       border-radius: 8px;
       box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
     }
-
     label {
       display: block;
       margin-bottom: 10px;
       font-weight: bold;
     }
-
-    input[type="text"], select {
+    input[type="text"], input[type="number"], select {
       width: 100%;
       padding: 10px;
       margin-bottom: 20px;
       border: 1px solid #ccc;
       border-radius: 4px;
+      font-size: 16px;
     }
-
     button {
       padding: 10px 20px;
       background-color: #007bff;
       color: white;
       border: none;
       border-radius: 5px;
-      cursor: pointer;
       font-size: 16px;
+      cursor: pointer;
     }
-
     button:hover {
       background-color: #0056b3;
     }
-
-    .material-link, .index-link {
-      text-align: center;
-      margin-top: 20px;
-    }
-
-    .material-link a, .index-link a {
+    a {
       color: #007bff;
       text-decoration: none;
-      font-weight: bold;
     }
-
-    .material-link a:hover, .index-link a:hover {
+    a:hover {
       text-decoration: underline;
     }
   </style>
 </head>
 <body>
-  <h1>Select Machine</h1>
-  <form method="POST" action="{{ url_for('select_machine') }}">
+
+  <h1>Enter Machine Details</h1>
+
+  <form method="POST">
+    <input type="hidden" name="stage" value="{{ stage }}">
+
     <label for="machine_name">Machine Name</label>
-    <input type="text" id="machine_name" name="machine_name" placeholder="Enter machine name" required>
+    <input type="text" name="machine_name" required>
 
-    <label for="machine_number">Machine Number</label>
-    <input type="text" id="machine_number" name="machine_number" placeholder="Enter machine number" required>
+    <label for="machine_id">Machine ID</label>
+    <input type="number" name="machine_id" required>
 
-    <label for="material">Material</label>
-    <select id="material" name="material" required>
-      <option value="">-- Select Material --</option>
-      {% for mat in materials %}
-        <option value="{{ mat }}">{{ mat }}</option>
+    <label for="material_id">Select Material</label>
+    <select name="material_id" required>
+      {% for mat_id, mat_name in materials %}
+        <option value="{{ mat_id }}">{{ mat_id }} - {{ mat_name }}</option>
       {% endfor %}
     </select>
 
     <button type="submit">Submit</button>
   </form>
 
-  <div class="material-link">
-    <p>Want to add a new material? <a href="{{ url_for('add_material') }}">Add Material</a></p>
+  <div style="text-align: center; margin-top: 20px;">
+    <a href="{{ url_for('add_material', stage=stage) }}">Add New Material</a>
   </div>
 
-  <div class="index-link">
-    <p>Or skip to <a href="{{ url_for('index') }}">Index Page</a></p>
+  <div style="text-align: center; margin-top: 10px;">
+    <a href="{{ url_for('main_page') }}">← Back to Main Page</a>
   </div>
+
 </body>
 </html>

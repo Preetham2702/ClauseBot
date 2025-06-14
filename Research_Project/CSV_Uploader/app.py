@@ -31,72 +31,156 @@ if not os.path.exists(UPLOAD_FOLDER):
     os.makedirs(UPLOAD_FOLDER)
 
 @app.route('/', methods=['GET', 'POST'])
-def root():
-    return redirect(url_for('select_machine'))
+def main_page():
+    return render_template('main.html')
+
+@app.route('/handle_stage_selection', methods=['POST'])
+def handle_stage_selection():
+    stage = request.form['stage']
+
+    if stage == 'in_process':
+        return redirect(url_for('select_sensor'))
+    elif stage == 'design_stage':
+        return redirect(url_for('machine', stage='design_stage'))
+    elif stage == 'post_process':
+        return redirect(url_for('machine', stage='post_process'))
+    else:
+        return "Invalid selection"
+
+@app.route('/select_sensor', methods=['GET', 'POST'])
+def select_sensor():
+    return render_template('select_sensor.html')
+
+@app.route('/handle_sensor_selection', methods=['POST'])
+def handle_sensor_selection():
+    sensor = request.form['sensor']
+
+    if sensor == 'sensor1':
+        return "Sensor 1 page coming soon."
+    elif sensor == 'sensor2':
+        return "Sensor 2 page coming soon."
+    elif sensor == 'sensor3':
+        return redirect(url_for('sensor3_subtype'))
+    else:
+        return "Invalid sensor"
+
+@app.route('/sensor3_subtype', methods=['GET', 'POST'])
+def sensor3_subtype():
+    return render_template('sensor3.html')
+
+@app.route('/handle_sensor3_type', methods=['POST'])
+def handle_sensor3_type():
+    subtype = request.form['type']
+
+    if subtype == 'ircamera':
+        return redirect(url_for('machine', stage='ircamera'))
+    elif subtype == 'tdvideo':
+        return "tdvedio page comming soon"
+    elif subtype == 'tdimage':
+        return "tdimage page comming soon"
+    else:
+        return "Invalid sensor3 subtype"
 
 @app.route('/machine', methods=['GET', 'POST'])
-def select_machine():
+def machine():
+    stage = request.args.get('stage')
+    if not stage:
+        return "Stage not provided!"
+    conn = psycopg2.connect(host=hostname, dbname=database, user=username, password=pwd, port=port_id)
+    cur = conn.cursor()
+    
+    # Check if material exists
+    cur.execute("SELECT mat_id, mat_name FROM material")
+    materials = cur.fetchall()
+
+    if not materials:  # No materials in DB
+        cur.close()
+        conn.close()
+        return redirect(url_for('add_material'))  # redirect to add_material page
+
     if request.method == 'POST':
-        name = request.form['machine_name']
-        number = request.form['machine_number']
-        material = request.form['material']
+        machine_name = request.form['machine_name']
+        machine_id = int(request.form['machine_id'])
+        material_id = int(request.form['material_id'])
+
+        # store in session
+        session['machine_id'] = machine_id
+        session['material_id'] = material_id
+        session['stage'] = stage
 
         try:
-            conn = psycopg2.connect(host=hostname, dbname=database, user=username, password=pwd, port=port_id)
-            cur = conn.cursor()
-            cur.execute("INSERT INTO Machine (M_ID, M_Name) VALUES (%s, %s) ON CONFLICT (M_ID) DO NOTHING", (number, name))
-
-            cur.execute("SELECT 1 FROM Material WHERE Material_Type = %s", (material,))
-            if cur.fetchone():
-                cur.execute("UPDATE Material SET M_ID = %s WHERE Material_Type = %s", (number, material))
-            else:
-                cur.execute("INSERT INTO Material (Material_Type, M_ID) VALUES (%s, %s)", (material, number))
+            cur.execute("""
+                INSERT INTO Machine (m_id, m_name)
+                VALUES (%s, %s)
+                ON CONFLICT (m_id) DO NOTHING
+            """, (machine_id, machine_name))
 
             conn.commit()
+
+            return redirect(url_for('index', stage=stage, machine_id=machine_id, material_id=material_id))
+
+
         except Exception as e:
             return f"Error: {e}"
         finally:
             cur.close()
             conn.close()
 
-        return redirect(url_for('index'))
-
-    conn = psycopg2.connect(host=hostname, dbname=database, user=username, password=pwd, port=port_id)
-    cur = conn.cursor()
-    cur.execute("SELECT Material_Type FROM Material")
-    materials = [row[0] for row in cur.fetchall()]
     cur.close()
     conn.close()
 
-    return render_template('machine.html', materials=materials)
+    # Pass materials list to your machine.html template
+    return render_template('machine.html', materials=materials, stage=stage)
+    
+
 
 @app.route('/add_material', methods=['GET', 'POST'])
 def add_material():
     if request.method == 'POST':
-        material_type = request.form['material_type']
-        machine_id = request.form['machine_id']
+        material_name = request.form['material_name']
 
         try:
             conn = psycopg2.connect(host=hostname, dbname=database, user=username, password=pwd, port=port_id)
             cur = conn.cursor()
 
-            cur.execute("SELECT 1 FROM Machine WHERE M_ID = %s", (machine_id,))
-            if not cur.fetchone():
-                cur.execute("INSERT INTO Machine (M_ID, M_Name) VALUES (%s, %s)", (machine_id, f"Machine_{machine_id}"))
-
-            cur.execute("INSERT INTO Material (Material_Type, M_ID) VALUES (%s, %s)", (material_type, machine_id))
+            cur.execute("INSERT INTO material (mat_name) VALUES (%s)", (material_name,))
             conn.commit()
+
         except Exception as e:
             return f"Error: {e}"
         finally:
             cur.close()
             conn.close()
-        return redirect(url_for('select_machine'))
 
-    return render_template('add_material.html')
+        return redirect(url_for('add_material'))  # stay on same page after adding material
+
+    # ✅ Load material table to show in the table:
+    try:
+        conn = psycopg2.connect(host=hostname, dbname=database, user=username, password=pwd, port=port_id)
+        cur = conn.cursor()
+        cur.execute("SELECT mat_id, mat_name FROM material")
+        materials = cur.fetchall()
+
+    except Exception as e:
+        return f"Error: {e}"
+    finally:
+        cur.close()
+        conn.close()
+
+    return render_template('add_material.html', materials=materials)
 
 @app.route('/index')
 def index():
+    stage = request.args.get('stage')
+    machine_id = request.args.get('machine_id')
+    material_id = request.args.get('material_id')
+    message = request.args.get('message')  #  <-- receive message
+
+    # ✅ Defensive check: if any are missing, return error
+    if not stage or not machine_id or not material_id:
+        return "Missing stage or machine/material ID", 400
+
+
     grouped_files = {}
 
     for root, dirs, files in os.walk(app.config['UPLOAD_FOLDER']):
@@ -111,7 +195,7 @@ def index():
                 folder = rel_dir.split(os.sep)[0]
                 grouped_files.setdefault(folder, []).append(rel_file)
 
-    return render_template('index.html', files=grouped_files)
+    return render_template('index.html',files=grouped_files,stage=stage,machine_id=machine_id,material_id=material_id,message=message)  # ✅ pass message to template
 
 @app.route('/upload', methods=['POST'])
 def upload_file():
@@ -122,207 +206,14 @@ def upload_file():
         file.save(save_path)
     return ('', 204)
 
-def extract_image_dataframe(filepath, expected_cols=20):
-    with open(filepath, 'r') as file:
-        lines = file.read().replace('\r', '').strip().split('\n')
 
-    image_lines = []
-    start_data = False
-
-    for line in lines:
-        line = line.strip()
-        if not start_data:
-            if "Image Data" in line:
-                start_data = True
-            continue
-        if not line:
-            continue
-
-        parts = [p.strip() for p in line.split(';') if p.strip()]
-        try:
-            float_parts = [float(p) for p in parts[:expected_cols]]
-            if len(float_parts) == expected_cols:
-                image_lines.append(float_parts)
-        except ValueError:
-            continue
-
-    if not image_lines:
-        raise ValueError("No valid numeric data found.")
-
-    df = pd.DataFrame(image_lines)
-    df.columns = [f"Col{i+1}" for i in range(expected_cols)]
-    return df
-
-@app.route('/preview/<path:filename>')
-def preview(filename):
-    safe_path = os.path.normpath(os.path.join(app.config['UPLOAD_FOLDER'], filename))
-    if not safe_path.startswith(app.config['UPLOAD_FOLDER']):
-        return "Invalid file path!", 400
-
-    try:
-        df = extract_image_dataframe(safe_path)
-        df_html = df.to_html(classes='table table-bordered', index=False, escape=False)
-        return render_template('preview.html', tables=[df_html], filename=filename, show_button=True)
-    except Exception as e:
-        return f"Error: {e}", 500
-
-@app.route('/view/<path:filename>')
-def view_image_data(filename):
-    safe_path = os.path.normpath(os.path.join(app.config['UPLOAD_FOLDER'], filename))
-    if not safe_path.startswith(app.config['UPLOAD_FOLDER']):
-        return "Invalid file path!", 400
-
-    try:
-        df = extract_image_dataframe(safe_path)
-        vmin, vmax = df.values.min(), df.values.max()
-
-        def get_gradient_color(value):
-            norm_val = (value - vmin) / (vmax - vmin)
-            norm_val = max(0.0, min(1.0, norm_val))
-            return plt.cm.plasma(norm_val)
-
-        df_html = '<table class="table table-bordered" style="border-collapse: collapse;">'
-        for row in df.values:
-            df_html += '<tr>'
-            for val in row:
-                rgba = get_gradient_color(val)
-                hex_color = matplotlib.colors.to_hex(rgba)
-                df_html += f'<td style="background-color: {hex_color}; text-align: center;">{val:.2f}</td>'
-            df_html += '</tr>'
-        df_html += '</table>'
-
-        return render_template('preview.html', tables=[df_html], filename=filename, show_button=False)
-    except Exception as e:
-        return f"Error: {e}", 500
-
-@app.route('/update/<path:filename>', methods=['POST'])
-def update(filename):
-    filepath = os.path.join(UPLOAD_FOLDER, filename)
-    try:
-        with open(filepath, 'r') as file:
-            content = file.read().replace('\r', '').strip()
-        lines = content.split('\n')
-        image_lines = []
-        for line in lines:
-            if not any(char.isdigit() for char in line):
-                continue
-            parts = [p.strip() for p in line.split(';') if p.strip() != '']
-            if all(part.replace('.', '', 1).isdigit() for part in parts):
-                image_lines.append(parts)
-
-        max_len = max(len(row) for row in image_lines)
-        image_lines = [row for row in image_lines if len(row) == max_len]
-        df = pd.DataFrame(image_lines).astype(float)
-
-        conn = psycopg2.connect(host=hostname, dbname=database, user=username, password=pwd, port=port_id)
-        cur = conn.cursor()
-
-        # Ensure entry in Sensor3Data table
-        cur.execute("INSERT INTO Sensor3 (File_Path, Sensor_ID, Type) VALUES (%s, %s, %s) ON CONFLICT (File_Path) DO NOTHING", (filename, 1, 'IR_Camera'))
-
-        for idx, row in df.iterrows():
-            row_index = idx + 1  # 1-based index for DB
-            values = [filename, row_index] + [row[i] if pd.notna(row[i]) else None for i in df.columns]
-            cur.execute("""
-                INSERT INTO Sensor3_IRCamera (
-                    File_Path, Row_Index,
-                    Col1, Col2, Col3, Col4, Col5, Col6, Col7, Col8, Col9, Col10,
-                    Col11, Col12, Col13, Col14, Col15, Col16, Col17, Col18, Col19, Col20
-                    ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
-                            %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-            """, values)
-
-        conn.commit()
-        message = f"'{filename}' inserted into Sensor3_IRCamera successfully!"
-        df.columns = [f"Col{i+1}" for i in range(df.shape[1])]
-        table_html = df.to_html(classes='table table-bordered', index=False)
-
-        return render_template('preview.html', tables=[df.to_html(classes='table table-bordered', index=False)], filename=filename, message=message)
-  
-        
-    except Exception as e:
-        return f"Error uploading to Sensor3_IRCameraData: {e}", 500
-    finally:
-        if 'cur' in locals(): cur.close()
-        if 'conn' in locals(): conn.close()
-
-
-@app.route('/generate_video/<path:folder>')
-def generate_folder_video(folder):
-    base_path = os.path.join(app.config['UPLOAD_FOLDER'], folder)
-    video_name = f"{folder.replace('/', '_')}_thermal_video.mp4"
-    output_path = os.path.join("static", "videos", video_name)
-
-    if not os.path.exists("static/videos"):
-        os.makedirs("static/videos")
-
-    try:
-        # Get all .csv files from the folder recursively
-        csv_files = sorted([
-            os.path.join(root, file)
-            for root, _, files in os.walk(base_path)
-            for file in files if file.endswith('.csv')
-        ])
-
-        if not csv_files:
-            return "No CSV files found in folder", 404
-
-        import imageio
-        writer = imageio.get_writer(output_path, fps=30)
-
-        for file in csv_files:
-            try:
-                df = extract_image_dataframe(file)
-                image = create_colored_image(df)  # Same as for top-level
-                writer.append_data(image)
-            except Exception as e:
-                print(f"Skipping file {file}: {e}")  # Continue if one file fails
-
-        writer.close()
-        return redirect(f"/{output_path}")
-
-    except Exception as e:
-        return f"Error: {e}", 500
-
-@app.route('/generate_video_top_level')
-def generate_top_level_video():
-    top_files = []
-    base_path = app.config['UPLOAD_FOLDER']
-
-    for file in os.listdir(base_path):
-        if file.endswith('.csv'):
-            top_files.append(os.path.join(base_path, file))
-    top_files.sort()
-
-    output_path = os.path.join("static", "videos", "top_level_video.mp4")
-    os.makedirs("static/videos", exist_ok=True)
-
-    try:
-        writer = imageio.get_writer(output_path, fps=10)
-        for file in top_files:
-            df = extract_image_dataframe(file)
-            image = create_colored_image(df)
-            writer.append_data(image)
-        writer.close()
-        return redirect(f"/{output_path}")
-    except Exception as e:
-        return f"Error: {e}", 500
-
-def create_colored_image(df):
-    fig, ax = plt.subplots()
-    ax.imshow(df.values, cmap='plasma')  # 'plasma' works well for thermal
-    ax.axis('off')
-
-    buf = io.BytesIO()
-    plt.savefig(buf, format='png', bbox_inches='tight', pad_inches=0)
-    plt.close(fig)
-    buf.seek(0)
-
-    image = Image.open(buf)
-    return np.array(image)
 
 @app.route('/clear_selected', methods=['POST'])
 def clear_selected():
+    stage = request.form.get('stage')
+    machine_id = request.form.get('machine_id')
+    material_id = request.form.get('material_id')
+
     selected_items = request.form.getlist('selected_files')
 
     for item in selected_items:
@@ -358,7 +249,7 @@ def clear_selected():
             else:
                 break
 
-    return redirect(url_for('index'))
+    return redirect(url_for('index', stage=stage, machine_id=machine_id, material_id=material_id))
 
 
 @app.route('/delete/<path:filename>', methods=['POST'])
@@ -376,6 +267,377 @@ def delete_file(filename):
                 break
 
     return redirect(url_for('index'))
+
+
+@app.route('/preview_design/<path:filename>')
+def preview_design(filename):
+    return "Still in Process "
+
+@app.route('/preview_sensor1/<path:filename>')
+def preview_sensor1(filename):
+    return "Still in Process "
+
+@app.route('/preview_sensor2/<path:filename>')
+def preview_sensor2(filename):
+    return "Still in Process "
+
+def extract_ircamera_dataframe(filepath, expected_cols=20):
+    with open(filepath, 'r') as file:
+        lines = file.read().replace('\r', '').strip().split('\n')
+
+    image_lines = []
+    start_data = False
+
+    for line in lines:
+        line = line.strip()
+        if not start_data:
+            if "Image Data" in line:
+                start_data = True
+            continue
+        if not line:
+            continue
+
+
+        parts = [p.strip() for p in line.split(';')]
+
+        try:
+            float_parts = [float(p) for p in parts if p != '']
+            # 🟢 Pad missing columns with NaN
+            while len(float_parts) < expected_cols:
+                float_parts.append(np.nan)
+            image_lines.append(float_parts[:expected_cols])
+        except ValueError:
+            continue
+
+    if not image_lines:
+        raise ValueError("No valid numeric data found.")
+
+    df = pd.DataFrame(image_lines)
+    df.columns = [f"Col{i+1}" for i in range(expected_cols)]
+    return df
+
+@app.route('/preview_ircamera/<path:filename>')
+def preview_ircamera(filename):
+    machine_id = request.args.get('machine_id')
+    material_id = request.args.get('material_id')
+    stage = request.args.get('stage')
+
+    if not machine_id or not material_id:
+        machine_id = session.get('machine_id')
+        material_id = session.get('material_id')
+
+        # If still missing after fallback → error
+    if not machine_id or not material_id:
+        return "Missing machine_id or material_id!", 400
+
+    safe_path = os.path.normpath(os.path.join(app.config['UPLOAD_FOLDER'], filename))
+    if not safe_path.startswith(app.config['UPLOAD_FOLDER']):
+        return "Invalid file path!", 400
+
+    try:
+        df = extract_ircamera_dataframe(safe_path)
+        df_html = df.to_html(classes='table table-bordered', index=False, escape=False)
+        return render_template('preview_ircamera.html', tables=[df_html], filename=filename,show_button=True, machine_id=machine_id, material_id=material_id, stage='ircamera')
+
+    except Exception as e:
+        return f"Error: {e}", 500
+
+@app.route('/view_ircamera/<path:filename>')
+def view_ircamera(filename):
+    # Get extra params from request.args (query string)
+    stage = request.args.get('stage')
+    machine_id = request.args.get('machine_id')
+    material_id = request.args.get('material_id')
+
+    safe_path = os.path.normpath(os.path.join(app.config['UPLOAD_FOLDER'], filename))
+    if not safe_path.startswith(app.config['UPLOAD_FOLDER']):
+        return "Invalid file path!", 400
+
+    try:
+        df = extract_ircamera_dataframe(safe_path)  # You need to call your ircamera function here too!
+        vmin, vmax = df.values.min(), df.values.max()
+
+        def get_gradient_color(value):
+            norm_val = (value - vmin) / (vmax - vmin)
+            norm_val = max(0.0, min(1.0, norm_val))
+            return plt.cm.plasma(norm_val)
+
+        df_html = '<table class="table table-bordered" style="border-collapse: collapse;">'
+        for row in df.values:
+            df_html += '<tr>'
+            for val in row:
+                rgba = get_gradient_color(val)
+                hex_color = matplotlib.colors.to_hex(rgba)
+                df_html += f'<td style="background-color: {hex_color}; text-align: center;">{val:.2f}</td>'
+            df_html += '</tr>'
+        df_html += '</table>'
+
+
+        return render_template('preview_ircamera.html', tables=[df_html], filename=filename, show_button=False, machine_id=machine_id, material_id=material_id, stage=stage)
+    except Exception as e:
+        return f"Error: {e}", 500
+
+
+@app.route('/s3ircamera_update/<path:filename>', methods=['POST'])
+def s3ircamera_update(filename):
+    machine_id = request.form.get('machine_id')
+    material_id = request.form.get('material_id')
+    stage = request.form.get('stage')
+
+    machine_id = int(machine_id)
+    material_id = int(material_id)
+
+    filepath = os.path.join(UPLOAD_FOLDER, filename)
+    try: 
+        # Always extract dataframe first
+        df = extract_ircamera_dataframe(filepath)
+        df_html = df.to_html(classes='table table-bordered', index=False, escape=False)
+
+        conn = psycopg2.connect(host=hostname, dbname=database, user=username, password=pwd, port=port_id)
+        cur = conn.cursor()
+
+        # ✅ Check if file already exists in in_process table
+        cur.execute("SELECT COUNT(*) FROM in_process WHERE File_name = %s", (filename,))
+        file_exists = cur.fetchone()[0]
+
+        if file_exists > 0:
+            # File already uploaded — show preview with message
+            return render_template('preview_ircamera.html',
+                                    tables=[df_html],
+                                    filename=filename,
+                                    show_button = False,
+                                    machine_id=machine_id,
+                                    material_id=material_id,
+                                    stage=stage,
+                                    message="⚠️ File already uploaded!")
+
+        # ✅ Otherwise continue insertion
+        cur.execute("""
+            INSERT INTO in_process (File_name, Sensor_ID, m_id, mat_id, type)
+            VALUES (%s, %s, %s, %s, %s)
+            ON CONFLICT (File_name) DO NOTHING
+        """, (filename, 3, machine_id, material_id, 'IR_Camera'))
+
+        cur.execute("""
+            INSERT INTO sensor3 (file_name, sensor_id, type_id, type)
+            VALUES (%s, %s, %s, %s)
+            ON CONFLICT (file_name) DO NOTHING
+        """, (filename, 3, 1, 'IR_Camera'))
+
+        for idx, row in df.iterrows():
+            row_index = idx + 1
+            values = [filename, 1, row_index] + [row[i] if pd.notna(row[i]) else None for i in df.columns]
+            cur.execute("""
+                INSERT INTO S3_IRCamera (
+                    File_name, type_id, Row_Index,
+                    Col1, Col2, Col3, Col4, Col5, Col6, Col7, Col8, Col9, Col10,
+                    Col11, Col12, Col13, Col14, Col15, Col16, Col17, Col18, Col19, Col20
+                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
+                          %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                ON CONFLICT (File_name, Row_Index) DO NOTHING
+            """, values)
+
+        conn.commit()
+
+        if os.path.exists(filepath):
+            os.remove(filepath)  
+
+        # ✅ Show success message with preview
+        return redirect(url_for('index', stage=stage, machine_id=machine_id, material_id=material_id, message="File uploaded successfully"))
+
+    except Exception as e:
+        return f"Error uploading to Sensor3_IRCameraData: {e}", 500
+    finally:
+        if 'cur' in locals(): cur.close()
+        if 'conn' in locals(): conn.close()
+
+@app.route('/bulk_update/<path:folder>', methods=['POST'])
+def bulk_update_folder(folder):
+    machine_id = int(request.args.get('machine_id'))
+    material_id = int(request.args.get('material_id'))
+    stage = request.args.get('stage')
+
+    base_path = os.path.join(app.config['UPLOAD_FOLDER'], folder)
+    all_files = sorted([
+        os.path.join(base_path, file)
+        for file in os.listdir(base_path)
+        if file.endswith('.csv')
+    ])
+
+    success_count = 0
+    fail_count = 0
+
+    for filepath in all_files:
+        filename = os.path.relpath(filepath, app.config['UPLOAD_FOLDER'])
+        try:
+            df = extract_ircamera_dataframe(filepath)
+
+            conn = psycopg2.connect(host=hostname, dbname=database, user=username, password=pwd, port=port_id)
+            cur = conn.cursor()
+
+            # Check if already exists:
+            cur.execute("SELECT COUNT(*) FROM in_process WHERE File_name = %s", (filename,))
+            if cur.fetchone()[0] > 0:
+                print(f"⚠️ Skipping {filename}: already uploaded.")
+                cur.close()
+                conn.close()
+                continue
+
+            # Insert into in_process
+            cur.execute("""
+                INSERT INTO in_process (File_name, Sensor_ID, m_id, mat_id, type)
+                VALUES (%s, %s, %s, %s, %s)
+                ON CONFLICT (File_name) DO NOTHING
+            """, (filename, 3, machine_id, material_id, 'IR_Camera'))
+
+            # Insert into sensor3
+            cur.execute("""
+                INSERT INTO sensor3 (file_name, sensor_id, type_id, type)
+                VALUES (%s, %s, %s, %s)
+                ON CONFLICT (file_name) DO NOTHING
+            """, (filename, 3, 1, 'IR_Camera'))
+
+            # Insert into S3_IRCamera
+            for idx, row in df.iterrows():
+                row_index = idx + 1
+                values = [filename, 1, row_index] + [row[i] for i in df.columns]
+                cur.execute("""
+                    INSERT INTO S3_IRCamera (
+                        File_name, type_id, Row_Index,
+                        Col1, Col2, Col3, Col4, Col5, Col6, Col7, Col8, Col9, Col10,
+                        Col11, Col12, Col13, Col14, Col15, Col16, Col17, Col18, Col19, Col20
+                    ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
+                              %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    ON CONFLICT (File_name, Row_Index) DO NOTHING
+                """, values)
+
+            conn.commit()
+            cur.close()
+            conn.close()
+
+            os.remove(filepath)
+            success_count += 1
+
+        except ValueError as ve:
+            print(f"⚠️ Skipping {filename}: {ve}")
+            fail_count += 1
+
+        except Exception as e:
+            print(f"❌ Error processing {filename}: {e}")
+            fail_count += 1
+
+    print(f"✅ Bulk upload completed: {success_count} files uploaded, {fail_count} failed.")
+
+    # Return just 204 → no reload. Frontend handles reload.
+    return ('', 204)
+
+@app.route('/preview_tdvideo/<path:filename>')
+def preview_tdvideo(filename):
+    return "Still in Process "
+
+@app.route('/preview_tdimage/<path:filename>')
+def preview_tdimage(filename):
+    return "Still in Process "
+
+@app.route('/preview_post/<path:filename>')
+def preview_post(filename):
+    return "Still in Process "
+
+@app.route('/generate_video/<path:folder>')
+def generate_folder_video(folder):
+    base_path = os.path.join(app.config['UPLOAD_FOLDER'], folder)
+    video_name = f"{folder.replace('/', '_')}_thermal_video.mp4"
+    output_path = os.path.join("static", "videos", video_name)
+
+    # ✅ If video already exists, just serve it
+    if os.path.exists(output_path):
+        return redirect(url_for('static', filename=f"videos/{video_name}"))
+
+    os.makedirs("static/videos", exist_ok=True)
+
+    try:
+        # Collect all CSV files recursively in folder
+        csv_files = sorted([
+            os.path.join(root, file)
+            for root, _, files in os.walk(base_path)
+            for file in files if file.endswith('.csv')
+        ])
+
+        if not csv_files:
+            return "No CSV files found in folder", 404
+
+        writer = imageio.get_writer(output_path, fps=30)
+
+        for file in csv_files:
+            try:
+                df = extract_image_dataframe(file)
+                df = df.apply(pd.to_numeric, errors='coerce').fillna(0)
+                image = create_colored_image(df)
+                writer.append_data(image)
+            except Exception as e:
+                print(f"Skipping {file}: {e}")
+                continue
+
+        writer.close()
+        return redirect(url_for('static', filename=f"videos/{video_name}"))
+
+    except Exception as e:
+        print(f"Video generation failed: {e}")
+        return f"Error: {e}", 500
+
+
+@app.route('/generate_video_top_level')
+def generate_top_level_video():
+    output_path = os.path.join("static", "videos", "top_level_video.mp4")
+
+    # If video already exists, just serve it
+    if os.path.exists(output_path):
+        return redirect(url_for('static', filename=f"videos/{video_name}"))
+
+    os.makedirs("static/videos", exist_ok=True)
+
+    try:
+        top_files = []
+        base_path = app.config['UPLOAD_FOLDER']
+
+        for file in os.listdir(base_path):
+            if file.endswith('.csv'):
+                top_files.append(os.path.join(base_path, file))
+
+        top_files.sort()
+        writer = imageio.get_writer(output_path, fps=10)
+
+        for file in top_files:
+            try:
+                df = extract_image_dataframe(file)
+                df = df.apply(pd.to_numeric, errors='coerce').fillna(0)
+                image = create_colored_image(df)
+                writer.append_data(image)
+            except Exception as e:
+                print(f"Skipping {file}: {e}")
+                continue
+
+        writer.close()
+        return redirect(url_for('static', filename=f"videos/{video_name}"))
+
+    except Exception as e:
+        print(f"Top-level video generation failed: {e}")
+        return f"Error: {e}", 500
+
+def create_colored_image(df):
+    fig, ax = plt.subplots()
+    ax.imshow(df.values, cmap='plasma')  # 'plasma' works well for thermal
+    ax.axis('off')
+
+    buf = io.BytesIO()
+    plt.savefig(buf, format='png', bbox_inches='tight', pad_inches=0)
+    plt.close(fig)
+    buf.seek(0)
+
+    image = Image.open(buf)
+    return np.array(image)
+
+
 
 if __name__ == '__main__':
     app.run(port=5001, debug=True)

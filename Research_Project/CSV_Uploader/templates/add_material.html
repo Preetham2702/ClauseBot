@@ -5,31 +5,26 @@
   <style>
     body {
       font-family: Arial, sans-serif;
-      padding: 40px;
-      background: #f9f9f9;
+      padding: 50px;
+      background-color: #f9f9f9;
     }
-
     h1 {
       text-align: center;
-      font-size: 2.5em;
-      margin-bottom: 30px;
+      margin-bottom: 40px;
     }
-
     form {
       max-width: 500px;
-      margin: 0 auto;
+      margin: auto;
       background: white;
       padding: 30px;
       border-radius: 8px;
       box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
     }
-
     label {
       display: block;
       margin-bottom: 10px;
       font-weight: bold;
     }
-
     input[type="text"] {
       width: 100%;
       padding: 10px;
@@ -37,46 +32,72 @@
       border: 1px solid #ccc;
       border-radius: 4px;
     }
-
     button {
       padding: 10px 20px;
-      background-color: #28a745;
+      background-color: #007bff;
       color: white;
       border: none;
       border-radius: 5px;
-      cursor: pointer;
       font-size: 16px;
+      cursor: pointer;
     }
-
     button:hover {
-      background-color: #218838;
+      background-color: #0056b3;
     }
-
+    table {
+      width: 80%;
+      margin: 40px auto;
+      border-collapse: collapse;
+      background: white;
+      box-shadow: 0 0 10px rgba(0,0,0,0.1);
+    }
+    th, td {
+      border: 1px solid #ddd;
+      padding: 15px;
+      text-align: center;
+    }
+    th {
+      background-color: #f2f2f2;
+    }
     .back-link {
       display: block;
       text-align: center;
       margin-top: 20px;
       color: #007bff;
+      font-weight: bold;
       text-decoration: none;
     }
-
     .back-link:hover {
       text-decoration: underline;
     }
   </style>
 </head>
 <body>
-  <h1>Add New Material</h1>
-  <form method="POST" action="{{ url_for('add_material') }}">
-    <label for="material_type">Material Type</label>
-    <input type="text" id="material_type" name="material_type" placeholder="e.g., Steel" required>
 
-    <label for="machine_id">Machine Number (M_ID)</label>
-    <input type="text" id="machine_id" name="machine_id" placeholder="e.g., 101" required>
+  <h1>Add New Material</h1>
+
+  <form method="POST" action="{{ url_for('add_material') }}">
+    <label for="material_name">Material Name</label>
+    <input type="text" id="material_name" name="material_name" placeholder="e.g., Steel, Titanium" required>
 
     <button type="submit">Add Material</button>
   </form>
 
-  <a href="{{ url_for('select_machine') }}" class="back-link">← Back to Machine Selection</a>
+  <h2 style="text-align:center; margin-top:50px;">Existing Materials</h2>
+  <table>
+    <tr>
+      <th>Material ID</th>
+      <th>Material Name</th>
+    </tr>
+    {% for mat_id, mat_name in materials %}
+      <tr>
+        <td>{{ mat_id }}</td>
+        <td>{{ mat_name }}</td>
+      </tr>
+    {% endfor %}
+  </table>
+
+  <a href="{{ url_for('machine', stage=stage) }}" class="back-link">← Back to Machine Page</a>
+
 </body>
 </html>
