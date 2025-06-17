@@ -86,6 +86,7 @@ def machine():
     stage = request.args.get('stage')
     if not stage:
         return "Stage not provided!"
+
     conn = psycopg2.connect(host=hostname, dbname=database, user=username, password=pwd, port=port_id)
     cur = conn.cursor()
     
@@ -96,7 +97,7 @@ def machine():
     if not materials:  # No materials in DB
         cur.close()
         conn.close()
-        return redirect(url_for('add_material'))  # redirect to add_material page
+        return redirect(url_for('add_material',stage=stage))  # redirect to add_material page
 
     if request.method == 'POST':
         machine_name = request.form['machine_name']
@@ -133,9 +134,10 @@ def machine():
     return render_template('machine.html', materials=materials, stage=stage)
     
 
-
 @app.route('/add_material', methods=['GET', 'POST'])
 def add_material():
+
+    stage = request.args.get('stage') or request.form.get('stage')
     if request.method == 'POST':
         material_name = request.form['material_name']
 
@@ -147,14 +149,14 @@ def add_material():
             conn.commit()
 
         except Exception as e:
-            return f"Error: {e}"
+            return f"Error inserting values {e}"
         finally:
             cur.close()
             conn.close()
 
-        return redirect(url_for('add_material'))  # stay on same page after adding material
+        return redirect(url_for('add_material',stage=stage))  # stay on same page after adding material
 
-    # ✅ Load material table to show in the table:
+    # Load material table to show in the table:
     try:
         conn = psycopg2.connect(host=hostname, dbname=database, user=username, password=pwd, port=port_id)
         cur = conn.cursor()
@@ -162,12 +164,12 @@ def add_material():
         materials = cur.fetchall()
 
     except Exception as e:
-        return f"Error: {e}"
+        return f"Error table not existing {e}"
     finally:
         cur.close()
         conn.close()
 
-    return render_template('add_material.html', materials=materials)
+    return render_template('add_material.html', materials=materials, stage=stage)
 
 @app.route('/index')
 def index():
@@ -176,10 +178,9 @@ def index():
     material_id = request.args.get('material_id')
     message = request.args.get('message')  #  <-- receive message
 
-    # ✅ Defensive check: if any are missing, return error
+    #if any are missing, return error
     if not stage or not machine_id or not material_id:
-        return "Missing stage or machine/material ID", 400
-
+        return "Missing stage or machine/material ID"
 
     grouped_files = {}
 
@@ -195,7 +196,7 @@ def index():
                 folder = rel_dir.split(os.sep)[0]
                 grouped_files.setdefault(folder, []).append(rel_file)
 
-    return render_template('index.html',files=grouped_files,stage=stage,machine_id=machine_id,material_id=material_id,message=message)  # ✅ pass message to template
+    return render_template('index.html',files=grouped_files,stage=stage,machine_id=machine_id,material_id=material_id,message=message)  # pass message to template
 
 @app.route('/upload', methods=['POST'])
 def upload_file():
@@ -204,70 +205,7 @@ def upload_file():
         save_path = os.path.join(app.config['UPLOAD_FOLDER'], relative_path)
         os.makedirs(os.path.dirname(save_path), exist_ok=True)
         file.save(save_path)
-    return ('', 204)
-
-
-
-@app.route('/clear_selected', methods=['POST'])
-def clear_selected():
-    stage = request.form.get('stage')
-    machine_id = request.form.get('machine_id')
-    material_id = request.form.get('material_id')
-
-    selected_items = request.form.getlist('selected_files')
-
-    for item in selected_items:
-        full_path = os.path.normpath(os.path.join(app.config['UPLOAD_FOLDER'], item))
-
-        if os.path.isdir(full_path):
-            # Delete all files and subfolders in the folder
-            for root, dirs, files in os.walk(full_path, topdown=False):
-                for f in files:
-                    os.remove(os.path.join(root, f))
-                for d in dirs:
-                    os.rmdir(os.path.join(root, d))
-            try:
-                os.rmdir(full_path)
-            except FileNotFoundError:
-                pass
-
-            # ✅ Delete corresponding video file if it exists
-            video_name = f"{item.strip('/').replace('/', '_')}_thermal_video.mp4"
-            video_path = os.path.join("static", "videos", video_name)
-            if os.path.exists(video_path):
-                os.remove(video_path)
-
-        elif os.path.isfile(full_path):
-            os.remove(full_path)
-
-        # Clean up empty parent directories
-        folder = os.path.dirname(full_path)
-        while folder and folder != app.config['UPLOAD_FOLDER']:
-            if os.path.exists(folder) and not os.listdir(folder):
-                os.rmdir(folder)
-                folder = os.path.dirname(folder)
-            else:
-                break
-
-    return redirect(url_for('index', stage=stage, machine_id=machine_id, material_id=material_id))
-
-
-@app.route('/delete/<path:filename>', methods=['POST'])
-def delete_file(filename):
-    file_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
-    if os.path.exists(file_path):
-        os.remove(file_path)
-
-        folder = os.path.dirname(file_path)
-        while folder and folder != app.config['UPLOAD_FOLDER']:
-            if not os.listdir(folder):
-                os.rmdir(folder)
-                folder = os.path.dirname(folder)
-            else:
-                break
-
-    return redirect(url_for('index'))
-
+    return ('Files not selected')
 
 @app.route('/preview_design/<path:filename>')
 def preview_design(filename):
@@ -302,7 +240,6 @@ def extract_ircamera_dataframe(filepath, expected_cols=20):
 
         try:
             float_parts = [float(p) for p in parts if p != '']
-            # 🟢 Pad missing columns with NaN
             while len(float_parts) < expected_cols:
                 float_parts.append(np.nan)
             image_lines.append(float_parts[:expected_cols])
@@ -396,22 +333,15 @@ def s3ircamera_update(filename):
         conn = psycopg2.connect(host=hostname, dbname=database, user=username, password=pwd, port=port_id)
         cur = conn.cursor()
 
-        # ✅ Check if file already exists in in_process table
+        # Check if file already exists in in_process table
         cur.execute("SELECT COUNT(*) FROM in_process WHERE File_name = %s", (filename,))
         file_exists = cur.fetchone()[0]
 
         if file_exists > 0:
             # File already uploaded — show preview with message
-            return render_template('preview_ircamera.html',
-                                    tables=[df_html],
-                                    filename=filename,
-                                    show_button = False,
-                                    machine_id=machine_id,
-                                    material_id=material_id,
-                                    stage=stage,
-                                    message="⚠️ File already uploaded!")
+            return render_template('preview_ircamera.html',tables=[df_html],filename=filename,show_button = False,machine_id=machine_id,material_id=material_id,stage=stage,message="⚠️ File already uploaded!")
 
-        # ✅ Otherwise continue insertion
+        # Otherwise continue insertion
         cur.execute("""
             INSERT INTO in_process (File_name, Sensor_ID, m_id, mat_id, type)
             VALUES (%s, %s, %s, %s, %s)
@@ -442,7 +372,7 @@ def s3ircamera_update(filename):
         if os.path.exists(filepath):
             os.remove(filepath)  
 
-        # ✅ Show success message with preview
+        # Show success message with preview
         return redirect(url_for('index', stage=stage, machine_id=machine_id, material_id=material_id, message="File uploaded successfully"))
 
     except Exception as e:
@@ -463,7 +393,6 @@ def bulk_update_folder(folder):
         for file in os.listdir(base_path)
         if file.endswith('.csv')
     ])
-
     success_count = 0
     fail_count = 0
 
@@ -523,10 +452,10 @@ def bulk_update_folder(folder):
             fail_count += 1
 
         except Exception as e:
-            print(f"❌ Error processing {filename}: {e}")
+            print(f"Error processing {filename}: {e}")
             fail_count += 1
 
-    print(f"✅ Bulk upload completed: {success_count} files uploaded, {fail_count} failed.")
+    print(f"Bulk upload completed: {success_count} files uploaded, {fail_count} failed.")
 
     # Return just 204 → no reload. Frontend handles reload.
     return ('', 204)
@@ -549,7 +478,7 @@ def generate_folder_video(folder):
     video_name = f"{folder.replace('/', '_')}_thermal_video.mp4"
     output_path = os.path.join("static", "videos", video_name)
 
-    # ✅ If video already exists, just serve it
+    #  If video already exists, just serve it
     if os.path.exists(output_path):
         return redirect(url_for('static', filename=f"videos/{video_name}"))
 
@@ -566,7 +495,7 @@ def generate_folder_video(folder):
         if not csv_files:
             return "No CSV files found in folder", 404
 
-        writer = imageio.get_writer(output_path, fps=30)
+        writer = imageio.get_writer(output_path, fps=40)
 
         for file in csv_files:
             try:
@@ -638,6 +567,65 @@ def create_colored_image(df):
     return np.array(image)
 
 
+@app.route('/clear_selected', methods=['POST'])
+def clear_selected():
+    stage = request.form.get('stage')
+    machine_id = request.form.get('machine_id')
+    material_id = request.form.get('material_id')
+
+    selected_items = request.form.getlist('selected_files')
+
+    for item in selected_items:
+        full_path = os.path.normpath(os.path.join(app.config['UPLOAD_FOLDER'], item))
+
+        if os.path.isdir(full_path):
+            # Delete all files and subfolders in the folder
+            for root, dirs, files in os.walk(full_path, topdown=False):
+                for f in files:
+                    os.remove(os.path.join(root, f))
+                for d in dirs:
+                    os.rmdir(os.path.join(root, d))
+            try:
+                os.rmdir(full_path)
+            except FileNotFoundError:
+                pass
+
+            # Delete corresponding video file if it exists
+            video_name = f"{item.strip('/').replace('/', '_')}_thermal_video.mp4"
+            video_path = os.path.join("static", "videos", video_name)
+            if os.path.exists(video_path):
+                os.remove(video_path)
+
+        elif os.path.isfile(full_path):
+            os.remove(full_path)
+
+        # Clean up empty parent directories
+        folder = os.path.dirname(full_path)
+        while folder and folder != app.config['UPLOAD_FOLDER']:
+            if os.path.exists(folder) and not os.listdir(folder):
+                os.rmdir(folder)
+                folder = os.path.dirname(folder)
+            else:
+                break
+
+    return redirect(url_for('index', stage=stage, machine_id=machine_id, material_id=material_id))
+
+
+@app.route('/delete/<path:filename>', methods=['POST'])
+def delete_file(filename):
+    file_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
+    if os.path.exists(file_path):
+        os.remove(file_path)
+
+        folder = os.path.dirname(file_path)
+        while folder and folder != app.config['UPLOAD_FOLDER']:
+            if not os.listdir(folder):
+                os.rmdir(folder)
+                folder = os.path.dirname(folder)
+            else:
+                break
+
+    return redirect(url_for('index'))
 
 if __name__ == '__main__':
     app.run(port=5001, debug=True)
