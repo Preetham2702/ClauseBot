@@ -83,10 +83,7 @@ def handle_sensor3_type():
 
 @app.route('/machine', methods=['GET', 'POST'])
 def machine():
-    stage = request.args.get('stage')
-    if not stage:
-        return "Stage not provided!"
-
+    stage = request.args.get('stage') or request.form.get('stage')
     conn = psycopg2.connect(host=hostname, dbname=database, user=username, password=pwd, port=port_id)
     cur = conn.cursor()
     
@@ -103,7 +100,7 @@ def machine():
         machine_name = request.form['machine_name']
         machine_id = int(request.form['machine_id'])
         material_id = int(request.form['material_id'])
-
+        
         # store in session
         session['machine_id'] = machine_id
         session['material_id'] = material_id
@@ -118,17 +115,16 @@ def machine():
 
             conn.commit()
 
-            return redirect(url_for('index', stage=stage, machine_id=machine_id, material_id=material_id))
-
-
         except Exception as e:
             return f"Error: {e}"
         finally:
             cur.close()
             conn.close()
 
-    cur.close()
-    conn.close()
+        if stage == 'design_stage':
+            return redirect(url_for('design_stage', stage=stage, machine_id=machine_id, material_id=material_id))
+
+        return redirect(url_for('index', stage=stage, machine_id=machine_id, material_id=material_id))
 
     # Pass materials list to your machine.html template
     return render_template('machine.html', materials=materials, stage=stage)
@@ -136,30 +132,24 @@ def machine():
 
 @app.route('/add_material', methods=['GET', 'POST'])
 def add_material():
-
     stage = request.args.get('stage') or request.form.get('stage')
-    if request.method == 'POST':
-        material_name = request.form['material_name']
-
-        try:
-            conn = psycopg2.connect(host=hostname, dbname=database, user=username, password=pwd, port=port_id)
-            cur = conn.cursor()
-
-            cur.execute("INSERT INTO material (mat_name) VALUES (%s)", (material_name,))
-            conn.commit()
-
-        except Exception as e:
-            return f"Error inserting values {e}"
-        finally:
-            cur.close()
-            conn.close()
-
-        return redirect(url_for('add_material',stage=stage))  # stay on same page after adding material
-
-    # Load material table to show in the table:
+    materials= []
     try:
         conn = psycopg2.connect(host=hostname, dbname=database, user=username, password=pwd, port=port_id)
         cur = conn.cursor()
+
+        if request.method == 'POST':
+            material_name = request.form['material_name']
+
+            try:
+                cur.execute("INSERT INTO material (mat_name) VALUES (%s)", (material_name,))
+                conn.commit()
+
+            except Exception as e:
+                return f"Error inserting values {e}"
+
+
+            # Load material table to show in the table:
         cur.execute("SELECT mat_id, mat_name FROM material")
         materials = cur.fetchall()
 
@@ -207,9 +197,56 @@ def upload_file():
         file.save(save_path)
     return ('Files not selected')
 
-@app.route('/preview_design/<path:filename>')
-def preview_design(filename):
-    return "Still in Process "
+@app.route('/design_stage', methods=['GET', 'POST'])
+def design_stage():
+    machine_id = request.args.get('machine_id')
+    material_id = request.args.get('material_id')
+    stage = request.args.get('stage')
+
+    if request.method == 'POST':
+        machine_id = request.form.get('machine_id')
+        material_id = request.form.get('material_id')
+        stage = request.args.get('stage')
+
+        if not machine_id or not material_id:
+            return "Missing machine_id or material_id!"
+
+        design_id = request.form.get('design_id')
+        deposit_id = request.form.get('deposit_id')
+        file_name = request.form.get('file_name')
+        width = request.form.get('width')
+        height = request.form.get('height')
+        depth = request.form.get('depth')
+
+        width = float(width) if width else None
+        height = float(height) if height else None
+        depth = float(depth) if depth else None
+
+        try:
+            conn = psycopg2.connect(host=hostname, dbname=database, user=username, password=pwd, port=port_id)
+            cur = conn.cursor()
+            cur.execute("SELECT COUNT(*) FROM design_stage WHERE File_name = %s", (file_name,))
+            file_exists = cur.fetchone()[0]
+
+            if file_exists > 0:
+                # File already uploaded — show preview with message
+                return render_template('design_stage.html',machine_id=machine_id,material_id=material_id,stage=stage,message="⚠️ File already uploaded!")
+            
+            cur.execute("INSERT INTO design_stage (file_name,width,height,depth,m_id, mat_id, design_id,deposit_id) VALUES (%s, %s, %s, %s, %s, %s,%s,%s)", (file_name,width,height,depth,machine_id, material_id,design_id,deposit_id))
+
+            conn.commit()
+
+            return redirect(url_for('design_stage', stage=stage, machine_id=machine_id, material_id=material_id,message = 'Inserted values sucessfully'))
+
+        except Exception as e:
+            return f"Error inserting values {e}"
+
+        finally:
+            cur.close()
+            conn.close()  
+
+    return render_template("design_stage.html",stage=stage, machine_id=machine_id, material_id=material_id,message=request.args.get("message"))
+        
 
 @app.route('/preview_sensor1/<path:filename>')
 def preview_sensor1(filename):
@@ -265,7 +302,7 @@ def preview_ircamera(filename):
 
         # If still missing after fallback → error
     if not machine_id or not material_id:
-        return "Missing machine_id or material_id!", 400
+        return "Missing machine_id or material_id!"
 
     safe_path = os.path.normpath(os.path.join(app.config['UPLOAD_FOLDER'], filename))
     if not safe_path.startswith(app.config['UPLOAD_FOLDER']):

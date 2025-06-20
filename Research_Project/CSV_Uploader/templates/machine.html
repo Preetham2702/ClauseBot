@@ -57,8 +57,8 @@
 <body>
 
   <h1>Enter Machine Details</h1>
-
-  <form method="POST">
+  
+  <form method="POST" action="{{ url_for('machine', stage=stage) }}">
     <input type="hidden" name="stage" value="{{ stage }}">
 
     <label for="machine_name">Machine Name</label>

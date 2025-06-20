@@ -62,10 +62,11 @@
     .back-link {
       display: block;
       text-align: center;
-      margin-top: 20px;
+      margin-top: 30px;
       color: #007bff;
       font-weight: bold;
       text-decoration: none;
+      font-size: 18px;
     }
     .back-link:hover {
       text-decoration: underline;
@@ -76,11 +77,13 @@
 
   <h1>Add New Material</h1>
 
-  <form method="POST" action="{{ url_for('add_material') }}">
+  <form method="POST" action="{{ url_for('add_material', stage=stage) }}">
+    <input type="hidden" name="stage" value="{{ stage }}">
+    
     <label for="material_name">Material Name</label>
     <input type="text" id="material_name" name="material_name" placeholder="e.g., Steel, Titanium" required>
 
-    <button type="submit">Add Material</button>
+    <button type="submit" name="action" value="add">Add Material</button>
   </form>
 
   <h2 style="text-align:center; margin-top:50px;">Existing Materials</h2>
@@ -97,7 +100,10 @@
     {% endfor %}
   </table>
 
-  <a href="{{ url_for('machine', stage=stage) }}" class="back-link">← Back to Machine Page</a>
+  <!-- Back button moved below table and centered -->
+  <div style="text-align: center; margin-top: 30px;">
+    <a class="back-link" href="{{ url_for('machine', stage=stage) }}">← Back to Machine Page</a>
+  </div>
 
 </body>
 </html>
