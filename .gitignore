@@ -1,0 +1,49 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*.so
+
+# Virtual environment
+venv/
+env/
+
+# Environment variables
+.env
+*.env
+
+# Jupyter Notebook checkpoints
+.ipynb_checkpoints
+
+# macOS system files
+.DS_Store
+
+# VS Code settings
+.vscode/
+
+# Log files
+*.log
+
+# Data/output files
+*.csv
+*.tsv
+*.xls
+*.xlsx
+*.json
+*.pdf
+
+# Image/video files (optional)
+*.png
+*.jpg
+*.jpeg
+*.gif
+*.mp4
+
+# Model files
+*.pkl
+*.h5
+*.pt
+*.onnx
+
+# Other
+uploads/
+
