@@ -1,5 +1,6 @@
 import os
 import streamlit as st
+from dotenv import load_dotenv
 import fitz  # PyMuPDF
 import pdfplumber
 from sentence_transformers import SentenceTransformer
@@ -14,11 +15,17 @@ from llama_index.embeddings.huggingface import HuggingFaceEmbedding
 from groq import Groq
 
 
-# Avoid Streamlit issues with torch
-os.environ["STREAMLIT_WATCHER_IGNORE_FILES"] = "torch"
+load_dotenv()
 
 # GROQ API key
-os.environ["GROQ_API_KEY"] = "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"
+GROQ_API_KEY = os.getenv("GROQ_API_KEY")
+DB_HOST = os.getenv("DB_HOST")
+DB_NAME = os.getenv("DB_NAME")
+DB_USER = os.getenv("DB_USER")
+DB_PASSWORD = os.getenv("DB_PASSWORD")
+
+os.environ["STREAMLIT_WATCHER_IGNORE_FILES"] = "torch"
+
 client = Groq(api_key=os.environ["GROQ_API_KEY"])
 
 
@@ -106,10 +113,10 @@ if uploaded_files and len(uploaded_files)>0:
 
     # Connect to PostgreSQL
     conn = psycopg2.connect(
-        host="localhost",
-        database="postgres",  # Use your DB name if different
-        user="preethamreddy",
-        password="Preetham@2702"
+        host=DB_HOST,
+        database=DB_NAME,
+        user=DB_USER,
+        password=DB_PASSWORD
     )
     cursor = conn.cursor()
     inserted = 0
