@@ -1,157 +1,200 @@
 import os
-import streamlit as st
+import io
+import json
+from typing import List
+
+from fastapi import FastAPI, UploadFile, File, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel
 from dotenv import load_dotenv
+
 import fitz  # PyMuPDF
 import pdfplumber
-from sentence_transformers import SentenceTransformer
-import psycopg2
-import numpy as np
-import nltk
-from nltk.tokenize import sent_tokenize
-from llama_index.core import VectorStoreIndex
-from llama_index.core.settings import Settings
-from llama_index.core import Document
-from llama_index.embeddings.huggingface import HuggingFaceEmbedding
 from groq import Groq
 
+# ---------- Load environment ---------- #
 
 load_dotenv()
-
-# GROQ API key
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
-DB_HOST = os.getenv("DB_HOST")
-DB_NAME = os.getenv("DB_NAME")
-DB_USER = os.getenv("DB_USER")
-DB_PASSWORD = os.getenv("DB_PASSWORD")
 
-os.environ["STREAMLIT_WATCHER_IGNORE_FILES"] = "torch"
+if not GROQ_API_KEY:
+  raise RuntimeError("GROQ_API_KEY is not set in .env")
 
-client = Groq(api_key=os.environ["GROQ_API_KEY"])
+client = Groq(api_key=GROQ_API_KEY)
+
+# ---------- FastAPI app ---------- #
+
+app = FastAPI(title="Clause Bot Backend")
+
+# Allow your React app (Vite default: http://localhost:5173) to call this backend
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:5173", "http://127.0.0.1:5173", "*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# ---------- Models ---------- #
+
+class LeaseAnalysis(BaseModel):
+    summary: str
+    pros: List[str]
+    cons: List[str]
+    important_points: List[str]
 
 
-def ask_groq_with_context(question, context):
-    context_str = "\n\n".join(context)
-    messages = [
-        {"role": "system", "content": "You are a helpful legal assistant."},
-        {"role": "user", "content": f"Context: {context_str}\n\nQuestion: {question}"}
-    ]
-    response = client.chat.completions.create(model="llama3-70b-8192", messages=messages)
-    return response.choices[0].message.content
+# ---------- Helper functions ---------- #
 
-def extract_text_and_tables(uploaded_files):
+def extract_text_and_tables(pdf_bytes: bytes):
+    """
+    Extracts all text and tables from a PDF (in memory).
+    Uses:
+      - PyMuPDF (fitz) for text
+      - pdfplumber for tables
+    """
     text = ""
     tables = []
-    for file in uploaded_files:
-        #extract text with pymupdf
-        doc = fitz.open(stream=file.read(), filetype="pdf")
+
+    # Text extraction
+    with fitz.open(stream=pdf_bytes, filetype="pdf") as doc:
         for page in doc:
             text += page.get_text()
-        doc.close()
 
-        file.seek(0)
-        #extract table with pdfplumber
-        with pdfplumber.open(file) as pdf:
-            for page in pdf.pages:
-                tables.extend(page.extract_tables())
-    
-    return text,tables
+    # Table extraction
+    with pdfplumber.open(io.BytesIO(pdf_bytes)) as pdf:
+        for page in pdf.pages:
+            page_tables = page.extract_tables()
+            if page_tables:
+                tables.extend(page_tables)
 
-def chunk_text(text, max_tokens=500):
-    sentences = sent_tokenize(text)
-    chunks = []
-    current_chunk = []
-    current_length = 0
-
-    for sentence in sentences:
-        word_count = len(sentence.split())
-        if current_length + word_count > max_tokens:
-            chunks.append(' '.join(current_chunk))
-            current_chunk = [sentence]
-            current_length = word_count
-        else:
-            current_chunk.append(sentence)
-            current_length += word_count
-
-    if current_chunk:
-        chunks.append(' '.join(current_chunk))
-
-    return chunks
+    return text, tables
 
 
-# -------- UI -------- #
+def ask_groq_for_analysis(full_text: str, tables: list) -> LeaseAnalysis:
+    """
+    Sends the lease content to Groq (Llama 3) and asks for:
+      - summary
+      - pros (for tenant)
+      - cons / risks / red flags
+      - important points
+    Returns a LeaseAnalysis object.
+    """
 
-st.title("AI LEGAL ASSISTANT")
-uploaded_files = st.file_uploader("upload your legal contract (PDF)", type=["pdf"], accept_multiple_files = True)
+    # Truncate very long text so prompt is manageable
+    if len(full_text) > 20000:
+        text_for_model = full_text[:20000]
+    else:
+        text_for_model = full_text
 
-if uploaded_files and len(uploaded_files)>0:
-    st.success("File uploaded successfully!")
+    table_hint = ""
+    if tables:
+        table_hint = (
+            "The lease also contains tables (like fee schedules or payment tables). "
+            "If those contain any important fees, dates, or penalties, include them in your analysis. "
+        )
 
-    extracted_text,extracted_tables = extract_text_and_tables(uploaded_files)
+    prompt = f"""
+You are an expert legal assistant helping a tenant understand a residential or commercial lease.
 
-    text_container = st.container()
-    table_container = st.container()
+Here is the lease text:
 
-    #display text
-    with text_container:
-        st.header("Extracted Text")
-        st.write(extracted_text)
+--- LEASE START ---
+{text_for_model}
+--- LEASE END ---
 
-    #display tables
-    with table_container:
-        st.header("Extracted Tables")
-        if extracted_tables:
-            for i, table in enumerate(extracted_tables):
-                st.write(extracted_tables)
-                st.table(extracted_tables)
-        else:
-            st.write("No tables found in the PDF.")
+{table_hint}
 
-    # Load model 
-    model = SentenceTransformer('all-MiniLM-L6-v2')
-    chunks = chunk_text(extracted_text)
-    embeddings = model.encode(chunks)
+Your job:
 
-    # Connect to PostgreSQL
-    conn = psycopg2.connect(
-        host=DB_HOST,
-        database=DB_NAME,
-        user=DB_USER,
-        password=DB_PASSWORD
+1. Give a short, clear summary of what this lease is about (2–4 sentences).
+2. List the most important PROS for the tenant (good things / protections / benefits).
+3. List the most important CONS / RISKS / RED FLAGS for the tenant (fees, penalties, strict rules, one-sided terms, etc.).
+4. List any KEY THINGS THE TENANT SHOULD KNOW, such as:
+   - notice periods,
+   - automatic renewals,
+   - early termination rules,
+   - maintenance responsibilities,
+   - penalties for late payment,
+   - unusual or harsh clauses.
+
+Very important:
+- Be precise and do NOT invent terms that are not clearly supported by the text.
+- If something is unclear or missing, say that it is not clearly specified.
+- Focus on the tenant's point of view.
+
+Respond in valid JSON ONLY, in this exact format:
+
+{{
+  "summary": "short summary here",
+  "pros": ["item 1", "item 2"],
+  "cons": ["item 1", "item 2"],
+  "important_points": ["item 1", "item 2"]
+}}
+"""
+
+    response = client.chat.completions.create(
+        model="llama-3.1-8b-instant",
+        messages=[
+            {
+                "role": "system",
+                "content": "You are a careful legal assistant for lease agreements. You do not guess or hallucinate."
+            },
+            {
+                "role": "user",
+                "content": prompt
+            },
+        ],
+        temperature=0.2,
     )
-    cursor = conn.cursor()
-    inserted = 0
+
+    raw_content = response.choices[0].message.content
+
+    # Try to parse JSON strictly
     try:
-        for chunk, embedding in zip(chunks, embeddings):
-            embedding_str = "[" + ",".join(map(str, embedding)) + "]"
-            cursor.execute("""
-                INSERT INTO contract_chunks (document_id, chunk_text, embedding)
-                VALUES (%s, %s, %s::vector)
-            """, (1, chunk, embedding_str))
-            inserted += 1
-        conn.commit()
-        cursor.close()
-        conn.close()
+        data = json.loads(raw_content)
+    except json.JSONDecodeError:
+        # If the model didn't return valid JSON, wrap everything in a simple response
+        return LeaseAnalysis(
+            summary="I could not parse a structured JSON response. Here is the raw analysis:",
+            pros=[raw_content],
+            cons=[],
+            important_points=[],
+        )
 
-        
-        st.success(" Embeddings stored in database!")
-    except Exception as e:
-        st.error(f" Failed to insert into database: {e}")
-      
+    return LeaseAnalysis(
+        summary=data.get("summary", ""),
+        pros=data.get("pros", []),
+        cons=data.get("cons", []),
+        important_points=data.get("important_points", []),
+    )
 
-    # Setup embedding and LLM
-    embed_model =  HuggingFaceEmbedding(model_name="sentence-transformers/all-MiniLM-L6-v2")
-    Settings.embed_model = embed_model  
-    Settings.llm = None
 
-    documents = [Document(text=chunk) for chunk in chunks]  # From Phase 3
-    index = VectorStoreIndex.from_documents(documents)
-    query_engine = index.as_query_engine(llm=None)
+# ---------- API endpoint ---------- #
 
-    user_question = st.text_input("Ask a question about your contract:")
-    if user_question:
-        nodes = query_engine.retrieve(user_question)
-        context_chunks = [n.get_content() for n in nodes]
-        answer = ask_groq_with_context(user_question, context_chunks)
-        st.subheader("Answer:")
-        st.write(answer if answer.strip() else " Sorry, I couldn’t find an answer in your contract.")
+@app.post("/analyze-lease", response_model=LeaseAnalysis)
+async def analyze_lease(file: UploadFile = File(...)):
+    """
+    Endpoint:
+      - Accepts a single PDF file upload
+      - Extracts text + tables
+      - Sends to Groq for analysis
+      - Returns summary, pros, cons, important points
+    """
+    if file.content_type != "application/pdf":
+        raise HTTPException(status_code=400, detail="Only PDF files are supported.")
 
+    pdf_bytes = await file.read()
+    if not pdf_bytes:
+        raise HTTPException(status_code=400, detail="Uploaded file is empty.")
+
+    # 1. Extract text + tables
+    text, tables = extract_text_and_tables(pdf_bytes)
+
+    if not text.strip():
+        raise HTTPException(status_code=400, detail="Could not extract text from the PDF.")
+
+    # 2. Ask Groq for structured analysis
+    analysis = ask_groq_for_analysis(text, tables)
+
+    return analysis
