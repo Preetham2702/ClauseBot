@@ -28,7 +28,6 @@ env/
 *.tsv
 *.xls
 *.xlsx
-*.json
 *.pdf
 
 # Image/video files (optional)

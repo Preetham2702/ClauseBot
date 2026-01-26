@@ -1,4 +1,4 @@
-export { MyAgent } from "../../agent/src/my-agent.js";
+export { MyAgent } from "./my-agent.js";
 
 export default {
   async fetch(request: Request, env: any) {
