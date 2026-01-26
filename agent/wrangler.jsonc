@@ -1,0 +1,9 @@
+{
+    "name": "cf-ai-clausebot-agent",
+    "compatibility_date": "2026-01-26",
+    "main": "src/index.ts",
+    "ai": {
+      "binding": "AI"
+    }
+  }
+  
