@@ -2,7 +2,20 @@ import { useState, useRef, useEffect } from "react";
 import { FiPlus, FiMic } from "react-icons/fi";
 import { RxPaperPlane } from "react-icons/rx";
 
-const API_BASE = "http://127.0.0.1:8000"; // change if your backend is different
+/**
+ * Choose ONE:
+ * 1) Local FastAPI:
+ *    const CHAT_MODE = "fastapi";
+ *    const FASTAPI_BASE = "http://127.0.0.1:8000";
+ *
+ * 2) Cloudflare Worker (Agents):
+ *    const CHAT_MODE = "cloudflare";
+ *    const CLOUDFLARE_WORKER_URL = "https://....workers.dev";
+ */
+
+const CHAT_MODE = "fastapi"; // "fastapi" | "cloudflare"
+const FASTAPI_BASE = "http://127.0.0.1:8000";
+const CLOUDFLARE_WORKER_URL = "https://YOUR-WORKER-URL.workers.dev";
 
 export default function RightChatPanel() {
   const [messages, setMessages] = useState([
@@ -13,50 +26,109 @@ export default function RightChatPanel() {
 
   const bottomRef = useRef(null);
 
-  async function sendMessage() {
+  // Keep chat scrolled to bottom
+  useEffect(() => {
+    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [messages, loading]);
+
+  const buildCloudflarePayload = (newUserText) => {
+    // Convert UI messages -> {role, content}
+    // Agents typically accept a "messages" array like OpenAI-style chats
+    const history = messages.map((m) => ({
+      role: m.sender === "user" ? "user" : "assistant",
+      content: m.text,
+    }));
+
+    return {
+      messages: [...history, { role: "user", content: newUserText }],
+    };
+  };
+
+  const sendMessage = async () => {
     const question = input.trim();
     if (!question || loading) return;
 
-    // 1) add user message
+    // Add user message immediately
     setMessages((prev) => [...prev, { sender: "user", text: question }]);
     setInput("");
     setLoading(true);
 
     try {
-      // 2) call backend
-      const res = await fetch(`${API_BASE}/ask`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ question }),
-      });
+      let res;
+      let data;
 
-      const data = await res.json();
+      if (CHAT_MODE === "fastapi") {
+        // FastAPI expects: { question } and returns: { answer }
+        res = await fetch(`${FASTAPI_BASE}/ask`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ question }),
+        });
 
-      // 3) add bot message
-      if (!res.ok) {
-        setMessages((prev) => [
-          ...prev,
-          { sender: "bot", text: data?.detail || "Something went wrong." },
-        ]);
+        data = await res.json();
+
+        if (!res.ok) {
+          setMessages((prev) => [
+            ...prev,
+            { sender: "bot", text: data?.detail || "Something went wrong." },
+          ]);
+        } else {
+          setMessages((prev) => [
+            ...prev,
+            { sender: "bot", text: (data?.answer || "No answer returned.").trim() },
+          ]);
+        }
       } else {
-        setMessages((prev) => [
-          ...prev,
-          { sender: "bot", text: data?.answer || "No answer returned." },
-        ]);
+        // Cloudflare Agents: send conversation history
+        res = await fetch(CLOUDFLARE_WORKER_URL, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(buildCloudflarePayload(question)),
+        });
+
+        // Some Agent responses are JSON, some are text. Try JSON first.
+        const contentType = res.headers.get("content-type") || "";
+        if (contentType.includes("application/json")) {
+          data = await res.json();
+
+          // Common patterns:
+          // - data.response
+          // - data.message
+          // - data.output_text
+          // If your Worker returns a different key, adjust here.
+          const botReply =
+            data?.response ||
+            data?.message ||
+            data?.output_text ||
+            (typeof data === "string" ? data : JSON.stringify(data));
+
+          setMessages((prev) => [
+            ...prev,
+            { sender: "bot", text: String(botReply).trim() },
+          ]);
+        } else {
+          const text = await res.text();
+          setMessages((prev) => [
+            ...prev,
+            { sender: "bot", text: text.trim() || "No answer returned." },
+          ]);
+        }
       }
     } catch (err) {
       setMessages((prev) => [
         ...prev,
-        { sender: "bot", text: "Backend not reachable (is FastAPI running?)" },
+        {
+          sender: "bot",
+          text:
+            CHAT_MODE === "fastapi"
+              ? "Backend not reachable (is FastAPI running?)"
+              : "Cloudflare Worker not reachable (check URL/deploy).",
+        },
       ]);
     } finally {
       setLoading(false);
     }
-  }
-
-  useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages, loading]);
+  };
 
   return (
     <div className="w-full h-full flex flex-col bg-[#1A1A1A]">
@@ -74,7 +146,7 @@ export default function RightChatPanel() {
               {!isUser && <span className="text-xl select-none">🤖</span>}
 
               <div
-                className={`max-w-[70%] px-3 py-2 text-sm rounded-xl text-white ${
+                className={`max-w-[70%] px-3 py-2 text-sm rounded-xl text-white whitespace-pre-wrap ${
                   isUser ? "bg-[#2E2E2E]" : "bg-[#1E1E1E]"
                 }`}
               >
@@ -86,7 +158,6 @@ export default function RightChatPanel() {
           );
         })}
 
-        {/* typing bubble */}
         {loading && (
           <div className="flex items-end gap-2 w-full justify-start">
             <span className="text-xl select-none">🤖</span>
