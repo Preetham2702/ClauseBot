@@ -10,6 +10,7 @@
     "wrangler": "^4.0.0"
   },
   "dependencies": {
-    "agents": "^0.3.6"
+    "agents": "^0.3.6",
+    "agents-sdk": "^0.0.36"
   }
 }

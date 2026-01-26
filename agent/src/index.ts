@@ -1,20 +1,23 @@
 import { Agent, getAgentByName, routeAgentRequest } from "agents";
-import type { DurableObjectNamespace, ExportedHandler } from "@cloudflare/workers-types";
+import type { DurableObjectNamespace, ExecutionContext } from "@cloudflare/workers-types";
 
 export interface Env {
   AI: any; // Workers AI binding
   MyAgent: DurableObjectNamespace; // DO binding
 }
 
+/**
+ * Worker entry
+ */
 export default {
-  async fetch(request: Request, env: Env): Promise<Response> {
-    const url = new URL(request.url);
-
-    // Optional: agents routing
+  async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
+    // Optional: enable the standard /agents routing if you use it
     const routed = await routeAgentRequest(request as any, env as any);
     if (routed) return routed as Response;
 
-    // Your API endpoint
+    const url = new URL(request.url);
+
+    // Your existing endpoint for the React app
     if (url.pathname === "/ask" && request.method === "POST") {
       const body = (await request.json().catch(() => ({}))) as any;
       const question = String(body?.question ?? "").trim();
@@ -24,7 +27,8 @@ export default {
         return Response.json({ detail: "question is required" }, { status: 400 });
       }
 
-      const stub = await getAgentByName<Env, MyAgent>(env.MyAgent, "default");
+      // one agent instance; you can change "default" to a userId later
+      const stub = await getAgentByName(env.MyAgent as any, "default");
       const answer = await stub.chat(question, leaseText);
 
       return Response.json({ answer });
@@ -32,8 +36,11 @@ export default {
 
     return Response.json({ msg: "Not found" }, { status: 404 });
   },
-} as unknown as ExportedHandler<Env>;
+};
 
+/**
+ * Durable Object agent (stateful)
+ */
 export class MyAgent extends Agent<Env> {
   async chat(question: string, leaseText?: string): Promise<string> {
     const systemPrompt = `
@@ -43,9 +50,10 @@ If the lease does not clearly say it, reply exactly: "Not clearly specified in t
 No headings, no labels, no markdown.
 `.trim();
 
-    const userContent = leaseText
-      ? `LEASE:\n${leaseText}\n\nQUESTION:\n${question}`
-      : `QUESTION:\n${question}\n\n(If no lease text is provided, reply: "Not clearly specified in the lease.")`;
+    const userContent =
+      leaseText?.length
+        ? `LEASE:\n${leaseText}\n\nQUESTION:\n${question}`
+        : `QUESTION:\n${question}\n\n(If no lease text is provided, reply exactly: "Not clearly specified in the lease.")`;
 
     const result = await (this as any).env.AI.run("@cf/meta/llama-3.3-70b-instruct", {
       messages: [
