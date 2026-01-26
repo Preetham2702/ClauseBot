@@ -40,7 +40,10 @@ Below is the lease text:
 }
 
 
+
+
 💬 Chat Question Answering Prompt
+
 🎯 Purpose
 
 Answer user questions conversationally using only the uploaded lease content.
