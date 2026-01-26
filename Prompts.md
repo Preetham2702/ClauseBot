@@ -1,4 +1,5 @@
 📄 Lease Analysis Prompt
+
 🎯 Purpose
 
 Generate a clear, structured explanation of a lease agreement from a tenant’s perspective.
