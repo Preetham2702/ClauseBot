@@ -2,6 +2,9 @@
   "name": "cf_ai_clausebot_agent",
   "main": "src/index.ts",
   "compatibility_date": "2026-01-26",
+  "assets": {
+    "directory": "./dist"
+  },
   "ai": { "binding": "AI" },
   "durable_objects": {
     "bindings": [{ "name": "MyAgent", "class_name": "MyAgent" }]
