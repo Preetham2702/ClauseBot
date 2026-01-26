@@ -1,18 +1,49 @@
-# React + Vite
+# ClauseBot 📄🤖
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+ClauseBot is an AI-powered lease analysis tool that helps users understand legal documents clearly and confidently.  
+Users can upload a lease PDF, instantly see a structured analysis, and ask follow-up questions in a chat interface — all in one place.
 
-Currently, two official plugins are available:
+---
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Babel](https://babeljs.io/) (or [oxc](https://oxc.rs) when used in [rolldown-vite](https://vite.dev/guide/rolldown)) for Fast Refresh
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/) for Fast Refresh
+## 🚀 Features
 
-## React Compiler
+### 📂 Document Upload & Preview
+- Upload lease PDFs via drag-and-drop
+- View **scrollable page previews** on the left panel
+- Clear document anytime with one click
 
-The React Compiler is enabled on this template. See [this documentation](https://react.dev/learn/react-compiler) for more information.
+### 🧠 Automatic Lease Analysis
+Once a document is uploaded, ClauseBot automatically:
+- Generates a **clear summary**
+- Identifies **pros for the tenant**
+- Flags **cons, risks, and red flags**
+- Highlights **important clauses** (termination, renewal, penalties, etc.)
+_No button clicks required — analysis runs automatically.
 
-Note: This will impact Vite dev & build performances.
+### 💬 AI Chat (Context-Aware)
+- Ask natural language questions
+- AI responds **only using the uploaded lease**
+- Friendly, ChatGPT-style responses
 
-## Expanding the ESLint configuration
+### 🔁 Persistent State
+- Document and analysis persist across page refresh
+- Resume exactly where you left off
 
-If you are developing a production application, we recommend using TypeScript with type-aware lint rules enabled. Check out the [TS template](https://github.com/vitejs/vite/tree/main/packages/create-vite/template-react-ts) for information on how to integrate TypeScript and [`typescript-eslint`](https://typescript-eslint.io) in your project.
+---
+
+## 🖥️ Tech Stack
+
+### Frontend
+- **React (Vite)**
+- **Tailwind CSS**
+- **pdf.js** (PDF rendering)
+- **react-dropzone**
+- **Axios**
+
+### Backend
+- **FastAPI**
+- **Groq LLM API (Llama 3.1 8B Instant – free tier)**
+- **PyMuPDF (fitz)** – text extraction
+- **pdfplumber** – table extraction
+
+
