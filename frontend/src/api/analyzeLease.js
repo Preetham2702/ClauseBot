@@ -3,7 +3,7 @@ export async function analyzeLease(file) {
     formData.append("file", file);
   
     try {
-      const res = await fetch("http://localhost:8000/analyze-lease", {
+      const res = await fetch("https://clausebot.preethamreddy2702.workers.dev", {
         method: "POST",
         body: formData
       });
