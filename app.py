@@ -1,7 +1,7 @@
 import os
 import io
 import json
-from typing import List
+from typing import List, Optional
 
 from fastapi import FastAPI, UploadFile, File, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -18,7 +18,7 @@ load_dotenv()
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 
 if not GROQ_API_KEY:
-  raise RuntimeError("GROQ_API_KEY is not set in .env")
+    raise RuntimeError("GROQ_API_KEY is not set in .env")
 
 client = Groq(api_key=GROQ_API_KEY)
 
@@ -26,7 +26,6 @@ client = Groq(api_key=GROQ_API_KEY)
 
 app = FastAPI(title="Clause Bot Backend")
 
-# Allow your React app (Vite default: http://localhost:5173) to call this backend
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["http://localhost:5173", "http://127.0.0.1:5173", "*"],
@@ -43,25 +42,29 @@ class LeaseAnalysis(BaseModel):
     cons: List[str]
     important_points: List[str]
 
+class AskRequest(BaseModel):
+    question: str
+
+class AskResponse(BaseModel):
+    answer: str
+
+# ---------- In-memory "current lease" store ----------
+# (Simple for now. Later we can store per-user/session in DB.)
+CURRENT_LEASE_TEXT: Optional[str] = None
+CURRENT_LEASE_TABLES: Optional[list] = None
 
 # ---------- Helper functions ---------- #
 
 def extract_text_and_tables(pdf_bytes: bytes):
-    """
-    Extracts all text and tables from a PDF (in memory).
-    Uses:
-      - PyMuPDF (fitz) for text
-      - pdfplumber for tables
-    """
     text = ""
     tables = []
 
-    # Text extraction
+    # Text extraction (PyMuPDF)
     with fitz.open(stream=pdf_bytes, filetype="pdf") as doc:
         for page in doc:
             text += page.get_text()
 
-    # Table extraction
+    # Table extraction (pdfplumber)
     with pdfplumber.open(io.BytesIO(pdf_bytes)) as pdf:
         for page in pdf.pages:
             page_tables = page.extract_tables()
@@ -72,16 +75,6 @@ def extract_text_and_tables(pdf_bytes: bytes):
 
 
 def ask_groq_for_analysis(full_text: str, tables: list) -> LeaseAnalysis:
-    """
-    Sends the lease content to Groq (Llama 3) and asks for:
-      - summary
-      - pros (for tenant)
-      - cons / risks / red flags
-      - important points
-    Returns a LeaseAnalysis object.
-    """
-
-    # Truncate very long text so prompt is manageable
     if len(full_text) > 20000:
         text_for_model = full_text[:20000]
     else:
@@ -90,14 +83,12 @@ def ask_groq_for_analysis(full_text: str, tables: list) -> LeaseAnalysis:
     table_hint = ""
     if tables:
         table_hint = (
-            "The lease also contains tables (like fee schedules or payment tables). "
-            "If those contain any important fees, dates, or penalties, include them in your analysis. "
+            "The lease also contains tables (fees/payment schedules). "
+            "If those include important fees, dates, or penalties, include them. "
         )
 
     prompt = f"""
-You are an expert legal assistant helping a tenant understand a residential or commercial lease.
-
-Here is the lease text:
+You are an expert legal assistant helping a tenant understand a lease.
 
 --- LEASE START ---
 {text_for_model}
@@ -105,58 +96,37 @@ Here is the lease text:
 
 {table_hint}
 
-Your job:
-
-1. Give a short, clear summary of what this lease is about (2–4 sentences).
-2. List the most important PROS for the tenant (good things / protections / benefits).
-3. List the most important CONS / RISKS / RED FLAGS for the tenant (fees, penalties, strict rules, one-sided terms, etc.).
-4. List any KEY THINGS THE TENANT SHOULD KNOW, such as:
-   - notice periods,
-   - automatic renewals,
-   - early termination rules,
-   - maintenance responsibilities,
-   - penalties for late payment,
-   - unusual or harsh clauses.
-
-Very important:
-- Be precise and do NOT invent terms that are not clearly supported by the text.
-- If something is unclear or missing, say that it is not clearly specified.
-- Focus on the tenant's point of view.
-
-Respond in valid JSON ONLY, in this exact format:
+Return valid JSON ONLY:
 
 {{
-  "summary": "short summary here",
-  "pros": ["item 1", "item 2"],
-  "cons": ["item 1", "item 2"],
-  "important_points": ["item 1", "item 2"]
+  "summary": "2–4 sentence summary",
+  "pros": ["..."],
+  "cons": ["..."],
+  "important_points": ["..."]
 }}
+
+Rules:
+- Do not invent anything.
+- If unclear, say "Not clearly specified in the lease text provided."
+- Tenant-focused.
 """
 
     response = client.chat.completions.create(
         model="llama-3.1-8b-instant",
         messages=[
-            {
-                "role": "system",
-                "content": "You are a careful legal assistant for lease agreements. You do not guess or hallucinate."
-            },
-            {
-                "role": "user",
-                "content": prompt
-            },
+            {"role": "system", "content": "You are careful and accurate. You do not hallucinate."},
+            {"role": "user", "content": prompt},
         ],
         temperature=0.2,
     )
 
     raw_content = response.choices[0].message.content
 
-    # Try to parse JSON strictly
     try:
         data = json.loads(raw_content)
     except json.JSONDecodeError:
-        # If the model didn't return valid JSON, wrap everything in a simple response
         return LeaseAnalysis(
-            summary="I could not parse a structured JSON response. Here is the raw analysis:",
+            summary="Could not parse JSON. Raw response below:",
             pros=[raw_content],
             cons=[],
             important_points=[],
@@ -170,17 +140,54 @@ Respond in valid JSON ONLY, in this exact format:
     )
 
 
-# ---------- API endpoint ---------- #
+def ask_groq_for_qa(question: str, lease_text: str, tables: Optional[list]) -> str:
+    # keep prompt size safe
+    lease_slice = lease_text[:20000] if len(lease_text) > 20000 else lease_text
+
+    table_hint = ""
+    if tables:
+        table_hint = "There may be tables (fees/dates). Use them if relevant."
+
+    prompt = f"""
+You are Clause Bot — a friendly legal assistant.
+
+Use ONLY the lease text below to answer the user's question.
+If the lease does not clearly say it, respond politely like:
+"Not clearly specified in the lease I received."
+
+Reply like normal ChatGPT:
+- No labels like "Direct Answer" or "Explanation"
+- No markdown symbols like ** or *
+- Just give a clear short answer, and then 1–2 short sentences of helpful context.
+- If possible, mention the section title you used (don’t guess page numbers).
+
+--- LEASE START ---
+{lease_slice}
+--- LEASE END ---
+
+{table_hint}
+
+User question: {question}
+"""
+
+    response = client.chat.completions.create(
+        model="llama-3.1-8b-instant",
+        messages=[
+            {"role": "system", "content": "You are friendly, clear, and precise. No hallucination."},
+            {"role": "user", "content": prompt},
+        ],
+        temperature=0.2,
+    )
+
+    return response.choices[0].message.content.strip()
+
+
+# ---------- API endpoints ---------- #
 
 @app.post("/analyze-lease", response_model=LeaseAnalysis)
 async def analyze_lease(file: UploadFile = File(...)):
-    """
-    Endpoint:
-      - Accepts a single PDF file upload
-      - Extracts text + tables
-      - Sends to Groq for analysis
-      - Returns summary, pros, cons, important points
-    """
+    global CURRENT_LEASE_TEXT, CURRENT_LEASE_TABLES
+
     if file.content_type != "application/pdf":
         raise HTTPException(status_code=400, detail="Only PDF files are supported.")
 
@@ -188,13 +195,29 @@ async def analyze_lease(file: UploadFile = File(...)):
     if not pdf_bytes:
         raise HTTPException(status_code=400, detail="Uploaded file is empty.")
 
-    # 1. Extract text + tables
     text, tables = extract_text_and_tables(pdf_bytes)
 
     if not text.strip():
         raise HTTPException(status_code=400, detail="Could not extract text from the PDF.")
 
-    # 2. Ask Groq for structured analysis
-    analysis = ask_groq_for_analysis(text, tables)
+    # ✅ STORE lease content so /ask can use it
+    CURRENT_LEASE_TEXT = text
+    CURRENT_LEASE_TABLES = tables
 
+    analysis = ask_groq_for_analysis(text, tables)
     return analysis
+
+
+@app.post("/ask", response_model=AskResponse)
+async def ask_question(payload: AskRequest):
+    if not payload.question.strip():
+        raise HTTPException(status_code=400, detail="Question is empty.")
+
+    if not CURRENT_LEASE_TEXT:
+        raise HTTPException(
+            status_code=400,
+            detail="No lease uploaded yet. Upload a lease first."
+        )
+
+    answer = ask_groq_for_qa(payload.question, CURRENT_LEASE_TEXT, CURRENT_LEASE_TABLES)
+    return AskResponse(answer=answer)
