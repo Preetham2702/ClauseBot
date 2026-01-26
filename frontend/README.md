@@ -1,7 +1,6 @@
 # ClauseBot 📄🤖
 
-ClauseBot is an AI-powered lease analysis tool that helps users understand legal documents clearly and confidently.  
-Users can upload a lease PDF, instantly see a structured analysis, and ask follow-up questions in a chat interface — all in one place.
+ClauseBot is an AI-driven system for analyzing lease agreements that combines document processing, large language models, and interactive querying. The platform extracts and summarizes critical lease terms and enables context-aware question answering directly from the uploaded document.
 
 ---
 
