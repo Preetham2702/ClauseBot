@@ -1,5 +1,5 @@
 {
-  "name": "cf_ai_clausebot_agent",
+  "name": "clausebot",
   "main": "src/index.ts",
   "compatibility_date": "2026-01-26",
   "assets": {
